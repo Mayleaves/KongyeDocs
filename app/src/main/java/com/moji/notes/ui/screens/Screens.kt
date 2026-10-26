@@ -138,7 +138,7 @@ fun TrashScreen() {
             }
         }
         Text(
-            "回收站中的文件会在 30 天后被自动彻底删除",
+            "文件会保留到你手动彻底删除；卸载或清除应用数据会删除全部内容",
             Modifier.fillMaxWidth().background(Moji.Bg2).padding(horizontal = 16.dp, vertical = 10.dp),
             fontSize = 12.sp, color = Moji.Text3,
         )

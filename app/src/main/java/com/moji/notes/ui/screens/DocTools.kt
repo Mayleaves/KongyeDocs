@@ -206,8 +206,9 @@ fun ImagePreviewScreen(docId: String) {
 /** 修改分享图片的落款；留空表示不显示 */
 @Composable
 fun FooterDialog(onDismiss: () -> Unit) {
+    val footer by Repository.footer.collectAsState()
     InputDialog(
-        title = "图片落款", initial = Repository.footer.value, placeholder = "留空则不显示落款",
+        title = "图片落款", initial = footer, placeholder = "留空则不显示落款",
         confirmText = "保存", allowEmpty = true, onDismiss = onDismiss,
     ) { text ->
         onDismiss()

@@ -83,7 +83,7 @@ object Share {
     }.isSuccess
 
     fun readText(context: Context, uri: Uri): String? = runCatching {
-        context.contentResolver.openInputStream(uri)?.use { it.readBytes().toString(Charsets.UTF_8) }
+        context.contentResolver.openInputStream(uri)?.use { com.moji.notes.data.AutoBackup.readLimited(it) }
     }.getOrNull()
 
     fun writeText(context: Context, uri: Uri, text: String): Boolean = runCatching {

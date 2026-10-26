@@ -36,6 +36,9 @@ data class BackupSettings(
     val davDir: String = "空叶文档备份",
     val lastDav: Long = 0L,
     val davError: String = "",
+    val allowInsecureDav: Boolean = false,
+    val lastLocalRevision: Long = -1L,
+    val lastDavRevision: Long = -1L,
 )
 
 @Serializable
@@ -64,23 +67,30 @@ object Settings {
 
     fun init(context: Context) {
         file = File(context.filesDir, "settings.json")
-        _state.value = runCatching { json.decodeFromString<AppSettings>(file.readText()) }.getOrDefault(AppSettings())
+        val stored = if (!file.exists() && !File(file.parentFile, "settings.json.bak").exists()) AppSettings()
+            else runCatching { DurableFiles.read(file) { json.decodeFromString<AppSettings>(it) } }.getOrElse {
+                AppSettings(backup = BackupSettings(localError = "设置读取失败，原文件已保留，请重新配置备份", davError = "设置读取失败，请重新配置备份"))
+            }
+        val plain = runCatching { CredentialStore.decrypt(stored.backup.davPassword) }
+        _state.value = if (plain.isSuccess) stored.copy(backup = stored.backup.copy(davPassword = plain.getOrThrow()))
+            else stored.copy(backup = stored.backup.copy(davPassword = "", davEnabled = false, davError = "无法解密 WebDAV 凭据，请重新输入应用密码"))
+        if (stored.backup.davPassword.isNotEmpty() && !CredentialStore.isEncrypted(stored.backup.davPassword)) {
+            // Rotate twice so a plaintext 2.1 settings backup is not left behind.
+            runCatching { persist(_state.value); persist(_state.value); File(file.parentFile, "settings.json.tmp").delete() }
+        }
     }
 
     @Synchronized
     fun update(block: (AppSettings) -> AppSettings) {
         val next = block(_state.value)
         if (next == _state.value) return
+        persist(next)
         _state.value = next
-        val text = json.encodeToString(next)
-        runCatching {
-            val tmp = File(file.parentFile, file.name + ".tmp")
-            tmp.writeText(text)
-            if (!tmp.renameTo(file)) {
-                file.delete()
-                tmp.renameTo(file)
-            }
-        }
+    }
+
+    private fun persist(settings: AppSettings) {
+        val protected = settings.copy(backup = settings.backup.copy(davPassword = CredentialStore.encrypt(settings.backup.davPassword)))
+        DurableFiles.write(file, json.encodeToString(protected))
     }
 
     fun updateBackup(block: (BackupSettings) -> BackupSettings) = update { it.copy(backup = block(it.backup)) }

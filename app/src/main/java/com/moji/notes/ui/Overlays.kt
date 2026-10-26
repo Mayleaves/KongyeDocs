@@ -137,7 +137,7 @@ fun GlobalOverlays() {
             Toast.show(if (d.items.size > 1) "已将 ${d.items.size} 项移动到「$where」" else "已移动到「$where」")
         }
         is DialogRequest.TrashMany -> ConfirmDialog(
-            title = "删除 ${d.items.size} 项", message = "将移到回收站，30 天内可以恢复。",
+            title = "删除 ${d.items.size} 项", message = "将移到回收站，手动彻底删除前可以恢复。",
             confirmText = "删除", danger = true, onDismiss = close,
         ) {
             close()

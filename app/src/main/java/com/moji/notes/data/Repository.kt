@@ -4,7 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.media.ExifInterface
+import androidx.exifinterface.media.ExifInterface
 import android.net.Uri
 import android.util.Base64
 import android.util.LruCache
@@ -21,15 +21,26 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
+import java.io.IOException
 
 /** 所有数据保存在应用私有目录：library.json（目录结构）+ docs/<id>.json（正文）+ images/（图片） */
 object Repository {
     private lateinit var app: Context
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
 
-    @OptIn(ExperimentalCoroutinesApi::class)
-    private val writer = Dispatchers.IO.limitedParallelism(1)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val _problem = MutableStateFlow("")
+    val problem: StateFlow<String> = _problem.asStateFlow()
+    val isReadOnly get() = _problem.value.isNotEmpty()
+    @Volatile var revision: Long = 0L
+        private set
+    @Synchronized
+    private fun writable() { check(!isReadOnly) { _problem.value } }
+    @Synchronized
+    private fun failed(error: Exception): Nothing {
+        _problem.value = error.message ?: "数据读取或保存失败，原文件已保留，请从备份恢复"
+        throw error
+    }
 
     private val _items = MutableStateFlow<List<Item>>(emptyList())
     val items: StateFlow<List<Item>> = _items.asStateFlow()
@@ -61,6 +72,7 @@ object Repository {
     /** id -> 这篇文档里的评论（评论 id, 评论内容），供搜索评论 */
     private val commentIndex = ConcurrentHashMap<String, List<Pair<String, String>>>()
 
+    @Synchronized
     private fun indexComments(id: String, doc: DocContent) {
         val list = doc.comments.flatMap { t -> t.comments.map { t.id to it.text } }
         if (list.isEmpty()) commentIndex.remove(id) else commentIndex[id] = list
@@ -79,14 +91,26 @@ object Repository {
 
     private const val DAY = 24 * 60 * 60 * 1000L
 
+    @Synchronized
     fun init(context: Context) {
         app = context.applicationContext
+        _problem.value = ""
+        _items.value = emptyList(); _templates.value = emptyList(); _exports.value = emptyList()
+        docCache.clear(); versionCache.clear(); templateCache.clear(); textIndex.clear(); commentIndex.clear()
+        revision = 0L
         docsDir.mkdirs()
         imagesDir.mkdirs()
         versionsDir.mkdirs()
         templatesDir.mkdirs()
         exportsDir.mkdirs()
-        val lib = runCatching { json.decodeFromString<Library>(libFile.readText()) }.getOrNull()
+        try { DurableFiles.recover(app.filesDir) } catch (error: Exception) { _problem.value = "上次恢复未完成：${error.message}"; return }
+        val existing = libFile.exists() || File(app.filesDir, "library.json.bak").exists() || docsDir.listFiles().orEmpty().any { it.name.endsWith(".json") }
+        val lib = if (!existing) null else try {
+            DurableFiles.read(libFile) { json.decodeFromString<Library>(it).also(BackupCodec::validateLibrary) }
+        } catch (error: Exception) {
+            _problem.value = "文档目录无法读取，已停止写入和自动清理。原文件已保留，请从备份恢复。"
+            return
+        }
         if (lib == null) seed() else {
             _items.value = lib.items
             _nickname.value = lib.nickname
@@ -96,17 +120,21 @@ object Repository {
             _footer.value = lib.footer
             _toolbar.value = lib.toolbar
             _manualOrder.value = lib.manualOrder
+            revision = lib.revision
         }
         // 记下第一次使用的日期（老用户取最早的条目时间），“相识于”用
         if (Settings.value.firstUse == 0L) {
             Settings.update { it.copy(firstUse = _items.value.minOfOrNull { i -> i.createdAt } ?: System.currentTimeMillis()) }
         }
-        _exports.value = runCatching { json.decodeFromString<List<ExportRecord>>(exportsFile.readText()) }.getOrDefault(emptyList())
-        val now = System.currentTimeMillis()
-        _items.value.filter { it.deletedAt != null && now - it.deletedAt > 30 * DAY }.forEach { destroy(it.id) }
+        if (exportsFile.exists() || File(app.filesDir, "exports.json.bak").exists()) {
+            try { _exports.value = DurableFiles.read(exportsFile) { json.decodeFromString<List<ExportRecord>>(it) } }
+            catch (error: Exception) { _problem.value = error.message.orEmpty(); return }
+        }
+        // v2.2: never permanently delete user data automatically at startup.
         scope.launch(Dispatchers.IO) { buildIndexAndCleanImages() }
     }
 
+    @Synchronized
     private fun seed() {
         // 第一次打开只放一篇使用说明
         val welcome = Templates.welcome()
@@ -115,8 +143,10 @@ object Repository {
 
     // ---------- 查询 ----------
 
+    @Synchronized
     fun get(id: String?): Item? = id?.let { i -> _items.value.firstOrNull { it.id == i } }
 
+    @Synchronized
     fun isAlive(item: Item, all: List<Item> = _items.value): Boolean {
         var cur: Item? = item
         var guard = 0
@@ -129,14 +159,18 @@ object Repository {
     }
 
     /** 这些文档里的评论条数（含回复） */
+    @Synchronized
     fun commentCount(docIds: Collection<String>): Int = docIds.sumOf { commentIndex[it]?.size ?: 0 }
 
     /** 文档、图片、版本、模板、下载记录等笔记数据占用的空间（字节） */
+    @Synchronized
     fun dataSize(): Long = app.filesDir.walkTopDown().filter { it.isFile }.sumOf { it.length() }
 
+    @Synchronized
     fun children(parentId: String?, all: List<Item> = _items.value): List<Item> =
         all.filter { it.parentId == parentId && it.deletedAt == null }
 
+    @Synchronized
     fun ancestors(id: String?): List<Item> {
         val path = mutableListOf<Item>()
         var cur = get(id)
@@ -147,13 +181,15 @@ object Repository {
         return path
     }
 
+    @Synchronized
     fun descendants(id: String): List<Item> {
         val all = _items.value
         val out = mutableListOf<Item>()
         val queue = ArrayDeque(listOf(id))
+        val visited = mutableSetOf(id)
         while (queue.isNotEmpty()) {
             val pid = queue.removeFirst()
-            all.filter { it.parentId == pid }.forEach { out += it; queue += it.id }
+            all.filter { it.parentId == pid && visited.add(it.id) }.forEach { out += it; queue += it.id }
         }
         return out
     }
@@ -167,6 +203,7 @@ object Repository {
     }
 
     /** 搜索标题、正文和评论；onlyComments 时只看评论 */
+    @Synchronized
     fun search(query: String, onlyComments: Boolean = false): List<SearchHit> {
         val q = query.trim()
         if (q.isEmpty()) return emptyList()
@@ -189,6 +226,7 @@ object Repository {
 
     private val blank = Regex("\\s+")
 
+    @Synchronized
     private fun snippet(text: String, pos: Int, len: Int): String {
         val start = (pos - 18).coerceAtLeast(0)
         val end = (pos + len + 40).coerceAtMost(text.length)
@@ -198,25 +236,31 @@ object Repository {
 
     // ---------- 修改 ----------
 
+    @Synchronized
     private fun update(id: String, persist: Boolean = true, block: (Item) -> Item) {
+        writable()
         _items.value = _items.value.map { if (it.id == id) block(it) else it }
         if (persist) persistLibrary()
     }
 
+    @Synchronized
     fun createDoc(parentId: String?, title: String = "", content: DocContent = DocContent(), time: Long = System.currentTimeMillis()): Item {
+        writable()
         val text = content.bodyText()
         val item = Item(
             type = ItemType.DOC, title = title, parentId = parentId, createdAt = time, updatedAt = time,
             preview = text.take(PREVIEW_LENGTH).replace('\n', ' '), words = countWords(title + "\n" + text),
         )
-        _items.value = _items.value + item
+        val next = _items.value + item
+        commit(mapOf("docs/${item.id}.json" to json.encodeToString(content), "library.json" to json.encodeToString(library(next))))
+        _items.value = next
         textIndex[item.id] = text
         indexComments(item.id, content)
-        writeDoc(item.id, content)
-        persistLibrary()
+        docCache[item.id] = content
         return item
     }
 
+    @Synchronized
     fun createFolder(parentId: String?, title: String): Item {
         val item = Item(type = ItemType.FOLDER, title = title.trim(), parentId = parentId)
         _items.value = _items.value + item
@@ -224,16 +268,25 @@ object Repository {
         return item
     }
 
+    @Synchronized
     fun rename(id: String, title: String) = update(id) { it.copy(title = title.trim(), updatedAt = System.currentTimeMillis()) }
 
+    @Synchronized
     fun toggleStar(id: String) = update(id) { it.copy(starred = !it.starred) }
 
-    fun move(id: String, parentId: String?) = update(id) { it.copy(parentId = parentId) }
+    @Synchronized
+    fun move(id: String, parentId: String?) {
+        require(parentId == null || (get(parentId)?.isFolder == true && parentId != id && descendants(id).none { it.id == parentId })) { "不能移入自身或子文件夹" }
+        update(id) { it.copy(parentId = parentId) }
+    }
 
+    @Synchronized
     fun markOpened(id: String) = update(id) { it.copy(openedAt = System.currentTimeMillis()) }
 
+    @Synchronized
     fun trash(id: String) = update(id) { it.copy(deletedAt = System.currentTimeMillis()) }
 
+    @Synchronized
     fun restore(id: String) {
         val item = get(id) ?: return
         val parent = get(item.parentId)
@@ -241,174 +294,197 @@ object Repository {
         update(id) { it.copy(deletedAt = null, parentId = if (parentOk) it.parentId else null) }
     }
 
+    @Synchronized
     fun destroy(id: String) {
+        writable()
         val ids = (descendants(id).map { it.id } + id).toSet()
+        // Commit directory removal first; a crash may leave orphan files, never live entries with missing bodies.
+        _items.value = _items.value.filterNot { it.id in ids }
+        persistLibrary()
         ids.forEach { docId ->
             val f = File(docsDir, "$docId.json")
             if (f.exists()) {
-                runCatching { json.decodeFromString<DocContent>(f.readText()) }.getOrNull()
-                    ?.blocks?.filter { it.image.isNotEmpty() }?.forEach { File(imagesDir, it.image).delete() }
                 f.delete()
+                File(docsDir, "$docId.json.bak").delete()
             }
             textIndex.remove(docId)
             commentIndex.remove(docId)
             docCache.remove(docId)
             versionCache.remove(docId)
             File(versionsDir, "$docId.json").delete()
+            File(versionsDir, "$docId.json.bak").delete()
         }
-        _items.value = _items.value.filterNot { it.id in ids }
-        persistLibrary()
+        // Images are kept: another document, template, history or recovery snapshot may reference them.
     }
 
+    @Synchronized
     fun emptyTrash() = _items.value.filter { it.deletedAt != null }.forEach { destroy(it.id) }
 
+    @Synchronized
     fun duplicate(id: String): Item? {
         val src = get(id)?.takeIf { it.isDoc } ?: return null
         return createDoc(src.parentId, src.displayTitle + " 副本", withCopiedImages(loadDoc(id)))
     }
 
     /** 复制一份正文：图片文件也各自复制，避免多篇文档 / 模板共用同一个文件 */
+    @Synchronized
     private fun withCopiedImages(content: DocContent) = content.copy(blocks = content.blocks.map { b ->
         if (b.image.isEmpty()) b.copy(id = newId()) else {
             val name = newId() + "." + b.image.substringAfterLast('.', "jpg")
-            runCatching { File(imagesDir, b.image).copyTo(File(imagesDir, name)) }
+            require(BackupCodec.validImage(b.image)) { "非法图片文件名" }
+            DurableFiles.write(File(imagesDir, name), File(imagesDir, b.image).readBytes())
             b.copy(id = newId(), image = name)
         }
     })
 
+    @Synchronized
     fun setNickname(name: String) {
         _nickname.value = name.trim().ifEmpty { "我" }
         persistLibrary()
     }
 
+    @Synchronized
     fun setFilesGrid(grid: Boolean) {
         _filesGrid.value = grid
         persistLibrary()
     }
 
+    @Synchronized
     fun setHomeGrid(grid: Boolean) {
         _homeGrid.value = grid
         persistLibrary()
     }
 
     /** 分享图片的落款；传空字符串表示不显示落款 */
+    @Synchronized
     fun setFooter(text: String) {
         _footer.value = text.trim()
         persistLibrary()
     }
 
+    @Synchronized
     fun setToolbar(ids: List<String>) {
         _toolbar.value = ids
         persistLibrary()
     }
 
     /** 记下某个文件夹（null 为桌面）里拖动排好的顺序 */
+    @Synchronized
     fun setManualOrder(parentId: String?, ids: List<String>) {
         _manualOrder.value = _manualOrder.value + ((parentId ?: "") to ids)
         persistLibrary()
     }
 
+    @Synchronized
     fun manualOrder(parentId: String?): List<String> = _manualOrder.value[parentId ?: ""].orEmpty()
 
     // ---------- 下载记录 ----------
 
+    @Synchronized
     fun exportFile(r: ExportRecord) = File(exportsDir, "${r.id}.${r.kind.ext}")
 
     /** 记下一次分享 / 保存，并把内容另存一份，之后可以在“下载记录”里再次查看、分享 */
+    @Synchronized
     fun recordExport(kind: ExportKind, fileName: String, saved: Boolean, docId: String, source: File? = null, text: String? = null) {
         val r = ExportRecord(kind = kind, fileName = fileName, saved = saved, docId = docId)
-        runCatching {
-            val dest = exportFile(r)
-            if (source != null) source.copyTo(dest, overwrite = true) else dest.writeText(text.orEmpty())
-        }
+        val dest = exportFile(r)
+        DurableFiles.write(dest, source?.readBytes() ?: text.orEmpty().toByteArray())
         _exports.value = listOf(r) + _exports.value
         persistExports()
     }
 
+    @Synchronized
     fun deleteExport(id: String) {
         _exports.value.firstOrNull { it.id == id }?.let { exportFile(it).delete() }
         _exports.value = _exports.value.filterNot { it.id == id }
         persistExports()
     }
 
+    @Synchronized
     fun clearExports() {
         _exports.value.forEach { exportFile(it).delete() }
         _exports.value = emptyList()
         persistExports()
     }
 
+    @Synchronized
     private fun persistExports() {
         val text = json.encodeToString(_exports.value)
-        scope.launch(writer) { atomicWrite(exportsFile, text) }
+        atomicWrite(exportsFile, text)
+        persistLibrary()
     }
 
     // ---------- 文档正文 ----------
 
+    @Synchronized
     fun loadDoc(id: String): DocContent {
+        require(BackupCodec.validId(id)) { "非法文档 ID" }
         docCache[id]?.let { return it }
         val f = File(docsDir, "$id.json")
-        val content = runCatching { json.decodeFromString<DocContent>(f.readText()) }.getOrNull()
-        return if (content == null || content.blocks.isEmpty()) DocContent() else content
+        return try {
+            DurableFiles.read(f) { text -> json.decodeFromString<DocContent>(text).also { require(it.blocks.isNotEmpty()) } }
+        } catch (error: Exception) { failed(error) }
     }
 
+    @Synchronized
     fun saveDoc(id: String, title: String, content: DocContent) {
+        writable()
+        require(get(id)?.isDoc == true) { "文档已关闭或已删除，请重新打开" }
+        loadDoc(id) // A damaged existing body must never be silently overwritten.
         val text = content.bodyText()
-        textIndex[id] = text
-        indexComments(id, content)
-        update(id) {
-            it.copy(
+        val next = _items.value.map { item -> if (item.id != id) item else item.copy(
                 title = title.trim(), updatedAt = System.currentTimeMillis(),
                 preview = text.take(PREVIEW_LENGTH).replace('\n', ' '), words = countWords(title + "\n" + text),
             )
         }
-        writeDoc(id, content)
-    }
-
-    private fun writeDoc(id: String, content: DocContent) {
+        commit(mapOf("docs/$id.json" to json.encodeToString(content), "library.json" to json.encodeToString(library(next))))
+        _items.value = next
         docCache[id] = content
+        textIndex[id] = text
+        indexComments(id, content)
+    }
+
+    @Synchronized
+    private fun writeDoc(id: String, content: DocContent) {
         val text = json.encodeToString(content)
-        scope.launch(writer) { atomicWrite(File(docsDir, "$id.json"), text) }
+        atomicWrite(File(docsDir, "$id.json"), text)
+        docCache[id] = content
     }
 
+    @Synchronized
+    private fun library(items: List<Item> = _items.value) = Library(items, _nickname.value, _filesGrid.value, _homeGrid.value, _templates.value, _footer.value, _toolbar.value, _manualOrder.value, revision + 1)
+
+    @Synchronized
+    private fun commit(changes: Map<String, String>) {
+        try { DurableFiles.transaction(app.filesDir, changes.mapValues { it.value.toByteArray() }); revision++ }
+        catch (error: Exception) { failed(error) }
+    }
+
+    @Synchronized
     private fun persistLibrary() {
-        val text = json.encodeToString(
-            Library(
-                _items.value, _nickname.value, _filesGrid.value, _homeGrid.value, _templates.value, _footer.value, _toolbar.value,
-                _manualOrder.value,
-            )
-        )
-        scope.launch(writer) { atomicWrite(libFile, text) }
+        writable()
+        atomicWrite(libFile, json.encodeToString(library()))
+        revision++
     }
 
+    @Synchronized
     private fun atomicWrite(file: File, text: String) {
-        val tmp = File(file.parentFile, file.name + ".tmp")
-        tmp.writeText(text)
-        if (!tmp.renameTo(file)) {
-            file.delete()
-            tmp.renameTo(file)
-        }
+        writable()
+        try { DurableFiles.write(file, text) } catch (error: Exception) { failed(error) }
     }
 
     /** 建立搜索索引，并清理没有被任何文档、历史版本或模板引用的图片 */
+    @Synchronized
     private fun buildIndexAndCleanImages() {
-        val referenced = HashSet<String>()
-        fun collect(doc: DocContent) = doc.blocks.forEach { if (it.image.isNotEmpty()) referenced += it.image }
+        // Indexing must not turn a read error into an empty document or delete attachments.
+        if (isReadOnly) return
+        try {
         _items.value.filter { it.isDoc }.forEach { item ->
             val doc = loadDoc(item.id)
             textIndex[item.id] = doc.bodyText()
             indexComments(item.id, doc)
-            collect(doc)
         }
-        versionsDir.listFiles()?.forEach { f ->
-            runCatching { json.decodeFromString<List<DocVersion>>(f.readText()) }.getOrNull()?.forEach { collect(it.content) }
-        }
-        templatesDir.listFiles()?.forEach { f ->
-            runCatching { json.decodeFromString<DocContent>(f.readText()) }.getOrNull()?.let(::collect)
-        }
-        val now = System.currentTimeMillis()
-        imagesDir.listFiles()?.forEach { f ->
-            if (f.name !in referenced && now - f.lastModified() > DAY) f.delete()
-        }
+        } catch (_: Exception) { /* problem is observable in the recovery UI */ }
     }
 
     // ---------- 历史版本 / 本地版本 ----------
@@ -416,12 +492,17 @@ object Repository {
     private val versionCache = ConcurrentHashMap<String, List<DocVersion>>()
     private val templateCache = ConcurrentHashMap<String, DocContent>()
 
+    @Synchronized
     fun versions(docId: String): List<DocVersion> = versionCache.getOrPut(docId) {
-        runCatching { json.decodeFromString<List<DocVersion>>(File(versionsDir, "$docId.json").readText()) }
-            .getOrDefault(emptyList()).sortedByDescending { it.time }
+        require(BackupCodec.validId(docId)) { "非法文档 ID" }
+        val file = File(versionsDir, "$docId.json")
+        if (!file.exists() && !File(versionsDir, "$docId.json.bak").exists()) emptyList()
+        else try { DurableFiles.read(file) { json.decodeFromString<List<DocVersion>>(it) }.sortedByDescending { it.time } }
+        catch (error: Exception) { failed(error) }
     }
 
     /** 记录一个版本；与同类最新版本内容完全相同则跳过。返回是否真的记录了 */
+    @Synchronized
     fun addVersion(docId: String, kind: VersionKind, title: String, content: DocContent, note: String = ""): Boolean {
         val all = versions(docId)
         val latest = all.firstOrNull { it.kind == kind }
@@ -432,21 +513,26 @@ object Repository {
             .sortedByDescending { it.time }
         versionCache[docId] = kept
         val text = json.encodeToString(kept)
-        scope.launch(writer) { atomicWrite(File(versionsDir, "$docId.json"), text) }
+        atomicWrite(File(versionsDir, "$docId.json"), text)
+        persistLibrary()
         return true
     }
 
+    @Synchronized
     fun lastVersionTime(docId: String, kind: VersionKind): Long = versions(docId).firstOrNull { it.kind == kind }?.time ?: 0L
 
     /** 清空某一类版本（本地版本页的“清空版本”） */
+    @Synchronized
     fun clearVersions(docId: String, kind: VersionKind) {
         val kept = versions(docId).filterNot { it.kind == kind }
         versionCache[docId] = kept
         val text = json.encodeToString(kept)
-        scope.launch(writer) { atomicWrite(File(versionsDir, "$docId.json"), text) }
+        atomicWrite(File(versionsDir, "$docId.json"), text)
+        persistLibrary()
     }
 
     /** 用某个版本覆盖当前文档；覆盖前先把当前内容存为本地版本 */
+    @Synchronized
     fun restoreVersion(docId: String, version: DocVersion) {
         val item = get(docId) ?: return
         addVersion(docId, VersionKind.LOCAL, item.title, loadDoc(docId), "恢复历史版本前自动保存")
@@ -455,32 +541,39 @@ object Repository {
 
     // ---------- 自定义模板 ----------
 
+    @Synchronized
     fun saveAsTemplate(name: String, title: String, content: DocContent): UserTemplate {
         val t = UserTemplate(name = name.trim().ifEmpty { "我的模板" }, title = title)
         // 评论属于这篇文档本身，不带进模板
         val copy = withCopiedImages(content.withoutComments())
         templateCache[t.id] = copy
         val text = json.encodeToString(copy)
-        scope.launch(writer) { atomicWrite(File(templatesDir, "${t.id}.json"), text) }
+        atomicWrite(File(templatesDir, "${t.id}.json"), text)
         _templates.value = listOf(t) + _templates.value
         persistLibrary()
         return t
     }
 
     /** 从自定义模板新建文档时取正文（图片另复制一份给新文档） */
+    @Synchronized
     fun templateContent(id: String): DocContent = withCopiedImages(templatePreview(id))
 
     /** 只用于预览模板内容，不复制图片 */
+    @Synchronized
     fun templatePreview(id: String): DocContent =
         templateCache[id]
-            ?: runCatching { json.decodeFromString<DocContent>(File(templatesDir, "$id.json").readText()) }.getOrNull()
-            ?: DocContent()
+            ?: try {
+                require(BackupCodec.validId(id)) { "非法模板 ID" }
+                DurableFiles.read(File(templatesDir, "$id.json")) { json.decodeFromString<DocContent>(it) }
+            } catch (error: Exception) { failed(error) }
 
+    @Synchronized
     fun deleteTemplate(id: String) {
         templateCache.remove(id)
         _templates.value = _templates.value.filterNot { it.id == id }
         persistLibrary()
-        scope.launch(writer) { File(templatesDir, "$id.json").delete() }
+        File(templatesDir, "$id.json").delete()
+        File(templatesDir, "$id.json.bak").delete()
     }
 
     // ---------- 图片 ----------
@@ -490,6 +583,7 @@ object Repository {
     }
 
     /** 从相册导入图片：缩放到最长边 1600px、修正方向后存入私有目录，返回 文件名 和 宽高比 */
+    @Synchronized
     fun importImage(uri: Uri): Pair<String, Float>? = runCatching {
         val resolver = app.contentResolver
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
@@ -515,14 +609,16 @@ object Repository {
         }
         val png = bmp.hasAlpha()
         val name = newId() + if (png) ".png" else ".jpg"
-        File(imagesDir, name).outputStream().use {
-            bmp.compress(if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 88, it)
-        }
+        val bytes = java.io.ByteArrayOutputStream()
+        check(bmp.compress(if (png) Bitmap.CompressFormat.PNG else Bitmap.CompressFormat.JPEG, 88, bytes)) { "图片保存失败" }
+        DurableFiles.write(File(imagesDir, name), bytes.toByteArray())
         bitmapCache.put(name, bmp)
         name to bmp.width.toFloat() / bmp.height
     }.getOrNull()
 
+    @Synchronized
     fun loadBitmap(name: String): Bitmap? {
+        if (!BackupCodec.validImage(name)) return null
         bitmapCache.get(name)?.let { return it }
         val f = File(imagesDir, name)
         if (!f.exists()) return null
@@ -533,34 +629,104 @@ object Repository {
 
     // ---------- 备份 ----------
 
+    @Synchronized
     fun exportBackup(): String {
+        writable()
         val items = _items.value
         val docs = items.filter { it.isDoc }.associate { it.id to loadDoc(it.id) }
-        val images = docs.values.flatMap { d -> d.blocks.mapNotNull { b -> b.image.takeIf { it.isNotEmpty() } } }
-            .distinct().mapNotNull { name ->
+        val history = items.filter { it.isDoc }.associate { it.id to versions(it.id) }
+        val templates = _templates.value.associate { it.id to templatePreview(it.id) }
+        val contents = docs.values + templates.values + history.values.flatten().map { it.content }
+        val images = contents.flatMap { d -> d.blocks.mapNotNull { b -> b.image.takeIf { it.isNotEmpty() } } }
+            .distinct().associateWith { name ->
+                require(BackupCodec.validImage(name)) { "非法图片引用" }
                 val f = File(imagesDir, name)
-                if (f.exists()) name to Base64.encodeToString(f.readBytes(), Base64.NO_WRAP) else null
-            }.toMap()
-        return json.encodeToString(Backup(nickname = _nickname.value, items = items, docs = docs, images = images))
+                require(f.isFile) { "文档引用的图片丢失：$name，未生成备份" }
+                Base64.encodeToString(f.readBytes(), Base64.NO_WRAP)
+            }
+        val files = _exports.value.associate { record ->
+            require(BackupCodec.validId(record.id)) { "非法下载记录" }
+            val file = exportFile(record)
+            require(file.isFile) { "下载副本丢失，请先清理该下载记录再备份" }
+            file.name to Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+        }
+        return BackupCodec.encode(Backup(nickname = _nickname.value, items = items, docs = docs, images = images,
+            library = library().copy(revision = revision), versions = history, templates = templates, exportRecords = _exports.value, exportFiles = files, revision = revision))
     }
 
     /** 导入备份：同 id 的条目会被覆盖，其余保留；返回导入的文档数（不算回收站里的） */
+    @Synchronized
     fun importBackup(text: String): Int {
-        val backup = json.decodeFromString<Backup>(text)
-        require(backup.app == "moji-notes") { "不是空叶文档的备份文件" }
-        backup.images.forEach { (name, data) ->
-            val f = File(imagesDir, name)
-            if (!f.exists()) f.writeBytes(Base64.decode(data, Base64.NO_WRAP))
+        val backup = BackupCodec.decode(text) // Validate the entire input before touching any current data.
+        val safety = File(app.filesDir, "recovery").apply { mkdirs() }
+        val safetyName = "恢复前备份-${System.currentTimeMillis()}-${newId()}"
+        if (!isReadOnly) {
+            val snapshot = runCatching { exportBackup() }.getOrNull()
+            if (snapshot != null) DurableFiles.write(File(safety, "$safetyName.json"), snapshot)
+            else preserveRaw(File(safety, safetyName))
+        } else preserveRaw(File(safety, safetyName))
+
+        val renamed = backup.images.mapValues { (name, data) ->
+            val existing = File(imagesDir, name)
+            if (existing.isFile && !existing.readBytes().contentEquals(Base64.decode(data, Base64.NO_WRAP))) newId() + "." + name.substringAfterLast('.') else name
         }
-        backup.docs.forEach { (id, doc) ->
-            docCache[id] = doc
-            atomicWrite(File(docsDir, "$id.json"), json.encodeToString(doc))
-            textIndex[id] = doc.bodyText()
-            indexComments(id, doc)
-        }
+        fun remap(doc: DocContent) = doc.copy(blocks = doc.blocks.map { b -> b.copy(image = renamed[b.image] ?: b.image) })
+        val docs = backup.docs.mapValues { remap(it.value) }
+        val templates = backup.templates.mapValues { remap(it.value) }
         val incoming = backup.items.associateBy { it.id }
-        _items.value = _items.value.filterNot { it.id in incoming } + backup.items
-        persistLibrary()
+        var merged = _items.value.filterNot { it.id in incoming } + backup.items
+        val mergedMap = merged.associateBy { it.id }
+        // Preserve visibility of new items even when an old backup marks their ancestor deleted.
+        merged = merged.map { item ->
+            if (item.id !in incoming && isAlive(item, _items.value) && !isAlive(item, merged)) item.copy(parentId = null) else item
+        }
+        merged.forEach { item ->
+            val seen = mutableSetOf(item.id)
+            var parent = item.parentId
+            while (parent != null) {
+                val folder = mergedMap[parent]
+                require(folder?.isFolder == true && seen.add(parent)) { "恢复后的文件夹结构冲突，未导入" }
+                parent = folder.parentId
+            }
+        }
+        val mergedTemplates = _templates.value.filterNot { t -> backup.library?.templates?.any { it.id == t.id } == true } + backup.library?.templates.orEmpty()
+        val mergedExports = _exports.value.filterNot { r -> backup.exportRecords.any { it.id == r.id } } + backup.exportRecords
+        val nextLibrary = backup.library?.copy(items = merged, templates = mergedTemplates, revision = revision + 1)
+            ?: library(merged).copy(nickname = backup.nickname)
+        val history = docs.mapValues { (id, _) ->
+            val old = runCatching { versions(id) }.getOrDefault(emptyList())
+            val current = get(id)?.takeIf { it.isDoc }?.let { item ->
+                runCatching { DocVersion(kind = VersionKind.LOCAL, title = item.title, content = loadDoc(id), note = "恢复备份前自动保存") }.getOrNull()
+            }
+            (listOfNotNull(current) + old + backup.versions[id].orEmpty().map { it.copy(content = remap(it.content)) }).distinctBy { it.id }.sortedByDescending { it.time }
+        }
+        val changes = linkedMapOf<String, ByteArray>()
+        backup.images.forEach { (name, data) -> changes["images/${renamed.getValue(name)}"] = Base64.decode(data, Base64.NO_WRAP) }
+        docs.forEach { (id, doc) -> changes["docs/$id.json"] = json.encodeToString(doc).toByteArray() }
+        templates.forEach { (id, doc) -> changes["templates/$id.json"] = json.encodeToString(doc).toByteArray() }
+        history.forEach { (id, versions) -> changes["versions/$id.json"] = json.encodeToString(versions).toByteArray() }
+        backup.exportFiles.forEach { (name, data) -> changes["exports/$name"] = Base64.decode(data, Base64.NO_WRAP) }
+        changes["exports.json"] = json.encodeToString(mergedExports).toByteArray()
+        changes["library.json"] = json.encodeToString(nextLibrary).toByteArray() // directory commits last
+        try { DurableFiles.transaction(app.filesDir, changes) } catch (error: Exception) { failed(error) }
+        docCache.clear(); versionCache.clear(); templateCache.clear(); textIndex.clear(); commentIndex.clear()
+        _items.value = merged
+        _templates.value = mergedTemplates
+        _exports.value = mergedExports
+        _nickname.value = nextLibrary.nickname; _filesGrid.value = nextLibrary.filesGrid; _homeGrid.value = nextLibrary.homeGrid
+        _footer.value = nextLibrary.footer; _toolbar.value = nextLibrary.toolbar; _manualOrder.value = nextLibrary.manualOrder
+        revision++
+        _problem.value = ""
+        buildIndexAndCleanImages()
         return backup.items.count { it.isDoc && it.deletedAt == null }
+    }
+
+    @Synchronized
+    private fun preserveRaw(destination: File) {
+        destination.mkdirs()
+        listOf("library.json", "docs", "images", "versions", "templates", "exports.json", "exports").forEach { name ->
+            val file = File(app.filesDir, name)
+            if (file.exists()) check(file.copyRecursively(File(destination, name))) { "无法保存恢复前的原始文件，已停止恢复" }
+        }
     }
 }

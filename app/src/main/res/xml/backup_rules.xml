@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <exclude domain="file" path="settings.json" />
+    <exclude domain="file" path="settings.json.bak" />
+    <exclude domain="file" path="settings.json.tmp" />
+    <exclude domain="file" path=".transaction/" />
+    <exclude domain="file" path="recovery/" />
+</full-backup-content>

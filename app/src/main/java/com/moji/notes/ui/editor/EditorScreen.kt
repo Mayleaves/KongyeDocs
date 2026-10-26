@@ -168,6 +168,10 @@ fun EditorScreen(docId: String, isNew: Boolean) {
             editor.save()
         }
     }
+    // Continuous typing must not postpone persistence indefinitely.
+    LaunchedEffect(editor) {
+        while (true) { delay(5_000); editor.save() }
+    }
     DisposableEffect(editor) {
         EditorSession.current = editor
         onDispose {
@@ -176,8 +180,7 @@ fun EditorScreen(docId: String, isNew: Boolean) {
             val stillOpen = AppState.stack.any { it is Screen.Editor && it.docId == docId }
             if (!stillOpen && editor.isNew && editor.isEmptyDoc()) Repository.destroy(docId)
             else {
-                editor.save()
-                if (editor.changedInSession) editor.recordHistory()
+                if (editor.save() && editor.changedInSession) runCatching { editor.recordHistory() }
             }
         }
     }
@@ -247,8 +250,8 @@ fun EditorScreen(docId: String, isNew: Boolean) {
 
     /** 离开编辑器去别的页面前先保存，让新页面读到最新内容 */
     fun leaveTo(screen: Screen) {
-        editor.save()
-        editor.recordHistory()
+        if (!editor.save()) return
+        runCatching { editor.recordHistory() }.onFailure { Toast.show("版本保存失败：${it.message}"); return }
         AppState.push(screen)
     }
 

@@ -107,6 +107,7 @@ data class Library(
     val toolbar: List<String> = emptyList(),
     /** 手动排序：文件夹 id（桌面根目录用空字符串）-> 拖动排好的条目顺序 */
     val manualOrder: Map<String, List<String>> = emptyMap(),
+    val revision: Long = 0L,
 )
 
 const val DEFAULT_FOOTER = "由 空叶文档 生成"
@@ -158,6 +159,13 @@ data class Backup(
     val items: List<Item> = emptyList(),
     val docs: Map<String, DocContent> = emptyMap(),
     val images: Map<String, String> = emptyMap(),
+    val library: Library? = null,
+    val versions: Map<String, List<DocVersion>> = emptyMap(),
+    val templates: Map<String, DocContent> = emptyMap(),
+    val exportRecords: List<ExportRecord> = emptyList(),
+    val exportFiles: Map<String, String> = emptyMap(),
+    val revision: Long = 0L,
+    val checksum: String = "",
 )
 
 /** 文档纯文本，用于搜索、预览、字数统计和分享 */

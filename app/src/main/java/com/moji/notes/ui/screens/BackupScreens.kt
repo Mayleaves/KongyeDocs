@@ -119,9 +119,9 @@ private fun CoroutineScope.restore(read: suspend () -> String?) = launch {
         Toast.show("读取备份失败：" + AutoBackup.describe(it))
         return@launch
     }
-    runCatching { Repository.importBackup(text ?: error("empty")) }
+    runCatching { withContext(Dispatchers.IO) { Repository.importBackup(text ?: error("备份为空")) } }
         .onSuccess { Toast.show("已恢复 $it 篇文档") }
-        .onFailure { Toast.show("无法识别的备份文件") }
+        .onFailure { Toast.show("恢复失败，原文件已保留：" + AutoBackup.describe(it)) }
 }
 
 private fun manualFileName() = AutoBackup.MANUAL_PREFIX + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date()) + ".json"
@@ -142,6 +142,10 @@ fun LocalBackupScreen() {
     var listError by remember { mutableStateOf("") }
     var restoring by remember { mutableStateOf<BackupEntry?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var safetyBackups by remember { mutableStateOf<List<BackupEntry>?>(null) }
+    var safetyPick by remember { mutableStateOf<BackupEntry?>(null) }
+    var pendingImport by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { safetyBackups = AutoBackup.listSafety(context) }
     // 从开关进入选文件夹时，选好后顺便打开自动备份
     var enableAfterPick by remember { mutableStateOf(false) }
 
@@ -173,18 +177,26 @@ fun LocalBackupScreen() {
     }
     val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
         if (uri != null) scope.launch {
-            val ok = withContext(Dispatchers.IO) { Share.writeText(context, uri, Repository.exportBackup()) }
-            Toast.show(if (ok) "备份已保存" else "保存失败，请重试")
+            runCatching {
+                withContext(Dispatchers.IO) {
+                    val text = Repository.exportBackup()
+                    check(Share.writeText(context, uri, text)) { "无法写入备份" }
+                    check(Share.readText(context, uri) == text) { "备份回读校验失败" }
+                }
+            }.onSuccess { Toast.show("备份已保存并校验") }.onFailure { Toast.show("备份失败：${it.message}") }
         }
     }
     val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.restore { withContext(Dispatchers.IO) { Share.readText(context, uri) } }
+        if (uri != null) scope.launch {
+            pendingImport = withContext(Dispatchers.IO) { Share.readText(context, uri) }
+            if (pendingImport == null) Toast.show("无法读取备份")
+        }
     }
 
     Column(Modifier.fillMaxSize().background(Moji.Band)) {
         TopBar(title = "本地备份", onBack = { AppState.pop() }, divider = true)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            Hint("备份包含全部文档、文件夹和图片，存放在你选择的手机文件夹里，卸载空叶文档也不会被删除。")
+            Hint("备份包含文档、图片、历史版本、自定义模板和下载副本，并进行完整性校验。账号密码和备份目录不导出。备份为未加密 JSON，请妥善保管。")
 
             SettingsTitle("自动备份")
             SettingsGroup {
@@ -229,6 +241,12 @@ fun LocalBackupScreen() {
                 SettingRow("从其他备份文件恢复", last = true) { openFile.launch(backupMimeTypes) }
             }
             Hint("恢复时，备份里的文档会覆盖同一篇文档的当前内容；备份之后新建的文档会保留。到期清理只删除自动备份，手动备份不会被删除。")
+            Hint("后台会定期检查；离开应用时有新内容会补充备份。恢复前另存安全备份，回收站不再自动永久删除。")
+            SettingsTitle("恢复前安全备份")
+            SettingsGroup {
+                BackupRows(safetyBackups, "", "还没有恢复前安全备份") { safetyPick = it }
+            }
+            Hint("安全备份保存在应用内部，卸载或清除应用数据会删除。需要长期保存时，请另存到外部位置。")
             Spacer(Modifier.navigationBarsPadding().height(24.dp))
         }
     }
@@ -241,6 +259,18 @@ fun LocalBackupScreen() {
         RestoreConfirm(e, onDismiss = { restoring = null }) {
             restoring = null
             scope.restore { AutoBackup.readLocal(context, e) }
+        }
+    }
+    pendingImport?.let { text ->
+        ConfirmDialog(title = "从文件恢复", message = "同一篇文档会被备份覆盖。恢复前会保留当前数据的安全副本。", confirmText = "恢复", onDismiss = { pendingImport = null }, onConfirm = {
+            pendingImport = null
+            scope.restore { text }
+        })
+    }
+    safetyPick?.let { entry ->
+        RestoreConfirm(entry, onDismiss = { safetyPick = null }) {
+            safetyPick = null
+            scope.restore { AutoBackup.readSafety(context, entry) }
         }
     }
 }
@@ -294,6 +324,7 @@ fun CloudBackupScreen() {
                 SettingRow("服务器地址", s.davUrl.ifBlank { "未填写" }) { editing = DavField.URL }
                 SettingRow("账号", s.davUser.ifBlank { "未填写" }) { editing = DavField.USER }
                 SettingRow("密码", if (s.davPassword.isEmpty()) "未填写" else "••••••") { editing = DavField.PASSWORD }
+                SwitchRow("允许局域网 HTTP（明文）", s.allowInsecureDav) { on -> Settings.updateBackup { it.copy(allowInsecureDav = on) } }
                 SettingRow("备份目录", s.davDir.ifBlank { "（根目录）" }) { editing = DavField.DIR }
                 SettingRow(
                     "测试连接", davTest ?: "", last = true,

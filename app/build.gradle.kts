@@ -12,11 +12,17 @@ android {
         applicationId = "com.moji.notes"
         minSdk = 26
         targetSdk = 36
-        versionCode = 12
-        versionName = "2.1"
+        versionCode = 13
+        versionName = "2.2"
+        testInstrumentationRunner = "com.moji.notes.RegressionInstrumentation"
+        manifestPlaceholders["appLabel"] = "空叶文档"
     }
 
     buildTypes {
+        debug {
+            applicationIdSuffix = ".audit"
+            manifestPlaceholders["appLabel"] = "空叶文档测试"
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
@@ -47,5 +53,6 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.11.0")
     // WebDAV 自动备份（MKCOL / PROPFIND 等方法 HttpURLConnection 不支持）
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
+    implementation("androidx.exifinterface:exifinterface:1.4.2")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

@@ -23,6 +23,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -169,10 +170,10 @@ fun CreateSheet(onDismiss: () -> Unit, options: List<CreateOption>) {
 
 @Composable
 fun FolderPickerSheet(moving: List<Item>, onDismiss: () -> Unit, onPick: (String?) -> Unit) {
-    val all = Repository.items.value
+    val all by Repository.items.collectAsState()
     // 不能移到正在移动的文件夹自身或其子文件夹里
     val excluded = remember(moving) { moving.flatMap { m -> Repository.descendants(m.id).map { it.id } + m.id }.toSet() }
-    val rows = remember(moving) {
+    val rows = remember(moving, all) {
         val out = mutableListOf<Pair<Item, Int>>()
         fun walk(parent: String?, depth: Int) {
             all.filter { it.isFolder && it.parentId == parent && it.deletedAt == null && it.id !in excluded }

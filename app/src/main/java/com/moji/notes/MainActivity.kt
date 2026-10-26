@@ -112,7 +112,7 @@ class MainActivity : ComponentActivity() {
         super.onStop()
         EditorSession.current?.save()
         // 离开应用时：如果距上次自动备份已满所选间隔，就在后台备份一次
-        AutoBackup.runIfDue(this)
+        AutoBackup.runIfDue(this, includeChanges = true)
     }
 
     /** 其他应用“分享到空叶文档”的文字，直接新建一篇笔记并打开 */

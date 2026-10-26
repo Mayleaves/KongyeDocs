@@ -25,6 +25,7 @@ import com.moji.notes.data.Settings
 import com.moji.notes.data.StyleRange
 import com.moji.notes.data.VersionKind
 import com.moji.notes.data.canFirstIndent
+import com.moji.notes.ui.components.Toast
 import kotlin.math.max
 
 /**
@@ -133,17 +134,21 @@ class EditorState(val docId: String, val isNew: Boolean) {
 
     fun isEmptyDoc() = title.text.isBlank() && blocks.all { it.type.isText && it.text.isBlank() }
 
-    fun save() {
-        if (isSaved) return
-        Repository.saveDoc(docId, title.text, content())
+    fun save(): Boolean {
+        if (isSaved) return true
+        val result = runCatching { Repository.saveDoc(docId, title.text, content()) }
+        if (result.isFailure) { Toast.show("保存失败，编辑内容仍保留在此页：${result.exceptionOrNull()?.message}"); return false }
         savedVersion = version
         lastSavedAt = System.currentTimeMillis()
+        runCatching {
         // 长时间连续编辑时，每 10 分钟记录一次历史版本
         if (lastSavedAt - Repository.lastVersionTime(docId, VersionKind.HISTORY) > 10 * 60 * 1000L) recordHistory()
         // 开着“系统自动备份”时，每 10 分钟再存一个本地版本
         if (Settings.value.autoLocalVersion && !isEmptyDoc() &&
             lastSavedAt - Repository.lastVersionTime(docId, VersionKind.LOCAL) > 10 * 60 * 1000L
         ) Repository.addVersion(docId, VersionKind.LOCAL, title.text, content(), "自动备份")
+        }.onFailure { Toast.show("正文已保存，但版本保存失败：${it.message}") }
+        return true
     }
 
     /** 记录一条历史版本；内容与上一条相同则不重复记录 */

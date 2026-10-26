@@ -39,7 +39,7 @@ sealed interface Screen {
 }
 
 /** 显示用的版本号（与 build.gradle 的 versionName 一致） */
-const val APP_VERSION = "2.1"
+const val APP_VERSION = "2.2"
 
 /** 底部导航：首页 / 文件 / 我的 */
 enum class Tab { HOME, FILES, ME }
@@ -148,6 +148,7 @@ object AppState {
 
     fun pop(): Boolean {
         if (stack.size <= 1) return false
+        if (current is Screen.Editor && com.moji.notes.ui.editor.EditorSession.current?.save() == false) return false
         forward = false
         selection = null
         stack.removeAt(stack.lastIndex)
@@ -156,6 +157,7 @@ object AppState {
 
     /** 返回到主页并切换标签 */
     fun goHome(tab: Tab) {
+        if (current is Screen.Editor && com.moji.notes.ui.editor.EditorSession.current?.save() == false) return
         forward = false
         selection = null
         while (stack.size > 1) stack.removeAt(stack.lastIndex)
@@ -172,7 +174,8 @@ object AppState {
     fun endSelection() { selection = null }
 
     fun openDoc(id: String, isNew: Boolean = false) {
-        Repository.markOpened(id)
+        runCatching { Repository.loadDoc(id); Repository.versions(id); Repository.markOpened(id) }
+            .onFailure { com.moji.notes.ui.components.Toast.show(it.message ?: "读取失败，原文件已保留"); return }
         push(Screen.Editor(id, isNew))
     }
 
@@ -186,7 +189,7 @@ object AppState {
     }
 
     fun newDoc(parentId: String?) {
-        val item = Repository.createDoc(parentId)
+        val item = runCatching { Repository.createDoc(parentId) }.getOrElse { com.moji.notes.ui.components.Toast.show(it.message ?: "新建失败"); return }
         openDoc(item.id, isNew = true)
     }
 

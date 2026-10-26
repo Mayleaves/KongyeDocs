@@ -24,6 +24,9 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import java.util.concurrent.TimeUnit
+import java.io.File
+import java.io.InputStream
+import java.io.ByteArrayOutputStream
 
 /** 本地文件夹或云端目录里的一个备份文件；id 是本地文档 id 或云端文件名 */
 data class BackupEntry(val name: String, val time: Long, val size: Long, val auto: Boolean, val id: String)
@@ -48,33 +51,41 @@ object AutoBackup {
             .connectTimeout(15, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
             .writeTimeout(60, TimeUnit.SECONDS)
+            .callTimeout(90, TimeUnit.SECONDS)
             .build()
     }
 
     /** 到时间了才备份（打开 / 离开应用时调用） */
-    fun runIfDue(context: Context) {
+    fun runIfDue(context: Context, includeChanges: Boolean = false) {
         val app = context.applicationContext
-        scope.launch { runAuto(app) }
+        BackupJobService.schedule(app)
+        scope.launch { runCatching { runAuto(app, includeChanges) } }
     }
 
-    private suspend fun runAuto(ctx: Context) = mutex.withLock {
+    suspend fun runScheduled(context: Context) { runCatching { runAuto(context.applicationContext, false) } }
+
+    private suspend fun runAuto(ctx: Context, includeChanges: Boolean) = mutex.withLock {
         val s = Settings.value.backup
         val now = System.currentTimeMillis()
-        val doLocal = s.localEnabled && s.localTree.isNotEmpty() && now - s.lastLocal >= s.intervalHours * HOUR
-        val doDav = s.davEnabled && s.davUrl.isNotBlank() && now - s.lastDav >= s.davIntervalHours * HOUR
+        val revision = Repository.revision
+        val doLocal = s.localEnabled && s.localTree.isNotEmpty() && (now - s.lastLocal >= s.intervalHours * HOUR || includeChanges && revision != s.lastLocalRevision)
+        val doDav = s.davEnabled && s.davUrl.isNotBlank() && (now - s.lastDav >= s.davIntervalHours * HOUR || includeChanges && revision != s.lastDavRevision)
         if (!doLocal && !doDav) return@withLock
-        val data = Repository.exportBackup()
-        val name = PREFIX + stamp.format(Date(now)) + ".json"
+        val data = try { Repository.exportBackup() } catch (error: Exception) {
+            Settings.updateBackup { it.copy(localError = if (doLocal) describe(error) else it.localError, davError = if (doDav) describe(error) else it.davError) }
+            return@withLock
+        }
+        val name = PREFIX + synchronized(stamp) { stamp.format(Date(now)) } + "-${newId()}" + ".json"
         if (doLocal) {
             // 备份写成功就算成功，清理旧备份失败不影响
             val err = runCatching { writeLocal(ctx, s, name, data) }.exceptionOrNull()
             if (err == null) runCatching { cleanLocal(ctx, s, name, now) }
-            Settings.updateBackup { it.copy(lastLocal = if (err == null) now else it.lastLocal, localError = err?.let(::describe).orEmpty()) }
+            Settings.updateBackup { it.copy(lastLocal = if (err == null) now else it.lastLocal, lastLocalRevision = if (err == null) revision else it.lastLocalRevision, localError = err?.let(::describe).orEmpty()) }
         }
         if (doDav) {
             val err = runCatching { putDav(s, name, data) }.exceptionOrNull()
             if (err == null) runCatching { cleanDav(s, name, now) }
-            Settings.updateBackup { it.copy(lastDav = if (err == null) now else it.lastDav, davError = err?.let(::describe).orEmpty()) }
+            Settings.updateBackup { it.copy(lastDav = if (err == null) now else it.lastDav, lastDavRevision = if (err == null) revision else it.lastDavRevision, davError = err?.let(::describe).orEmpty()) }
         }
     }
 
@@ -88,7 +99,7 @@ object AutoBackup {
 
     private class BackupError(message: String) : Exception(message)
 
-    private fun manualName() = MANUAL_PREFIX + stamp.format(Date()) + ".json"
+    private fun manualName() = MANUAL_PREFIX + synchronized(stamp) { stamp.format(Date()) } + "-${newId()}" + ".json"
 
     private fun isBackupName(name: String) = name.endsWith(".json") && (name.startsWith(PREFIX) || name.startsWith(MANUAL_PREFIX))
 
@@ -129,12 +140,17 @@ object AutoBackup {
         val doc = DocumentsContract.createDocument(resolver, dir, "application/json", name)
             ?: throw BackupError("无法在所选文件夹中创建文件")
         resolver.openOutputStream(doc)?.use { it.write(data.toByteArray()) } ?: throw BackupError("无法写入备份文件")
+        val verified = resolver.openInputStream(doc)?.use { readLimited(it) } ?: throw BackupError("无法校验刚写入的备份")
+        require(verified == data) { "备份写入后校验失败，未清理旧备份" }
+        BackupCodec.decode(verified)
     }
 
     private fun cleanLocal(ctx: Context, s: BackupSettings, current: String, now: Long) {
         if (s.keepDays <= 0) return
         val tree = Uri.parse(s.localTree)
-        queryLocal(ctx, tree).filter { expired(it.name, current, s.keepDays, now) }.forEach {
+        val entries = queryLocal(ctx, tree)
+        val protected = entries.filter { it.auto }.sortedByDescending { it.time }.take(3).map { it.id }.toSet()
+        entries.filter { it.id !in protected && expired(it.name, current, s.keepDays, now) }.forEach {
             runCatching { DocumentsContract.deleteDocument(ctx.contentResolver, DocumentsContract.buildDocumentUriUsingTree(tree, it.id)) }
         }
     }
@@ -172,7 +188,7 @@ object AutoBackup {
     suspend fun readLocal(context: Context, entry: BackupEntry): String = withContext(Dispatchers.IO) {
         val tree = Uri.parse(Settings.value.backup.localTree)
         val uri = DocumentsContract.buildDocumentUriUsingTree(tree, entry.id)
-        context.contentResolver.openInputStream(uri)?.use { it.readBytes().decodeToString() } ?: throw BackupError("无法读取备份文件")
+        context.contentResolver.openInputStream(uri)?.use { readLimited(it) } ?: throw BackupError("无法读取备份文件")
     }
 
     // ---------------- 云端（WebDAV） ----------------
@@ -198,7 +214,9 @@ object AutoBackup {
 
     private fun rootUrl(s: BackupSettings): HttpUrl {
         val raw = normalizeUrl(s.davUrl).let { if (it.startsWith("http://") || it.startsWith("https://")) it else "https://$it" }
-        return runCatching { raw.toHttpUrl() }.getOrElse { throw BackupError("服务器地址格式不对") }
+        val url = runCatching { raw.toHttpUrl() }.getOrElse { throw BackupError("服务器地址格式不对") }
+        require(url.isHttps || s.allowInsecureDav) { "HTTP 会明文传输密码和文档，请使用 HTTPS，或明确开启局域网 HTTP" }
+        return url
     }
 
     private fun dirSegments(s: BackupSettings) = s.davDir.split('/').map { it.trim() }.filter { it.isNotEmpty() }
@@ -247,12 +265,20 @@ object AutoBackup {
         client.newCall(request(fileUrl(s, name), s).put(data.toRequestBody("application/json".toMediaType())).build()).execute().use { r ->
             if (!r.isSuccessful) throw httpError(r.code)
         }
+        client.newCall(request(fileUrl(s, name), s).get().build()).execute().use { r ->
+            if (!r.isSuccessful) throw httpError(r.code)
+            val verified = r.body?.byteStream()?.use { readLimited(it) } ?: throw BackupError("无法校验云端备份")
+            require(verified == data) { "云端备份校验失败，未清理旧备份" }
+            BackupCodec.decode(verified)
+        }
     }
 
     /** 删掉过期的自动备份 */
     private fun cleanDav(s: BackupSettings, current: String, now: Long) {
         if (s.davKeepDays <= 0) return
-        queryDav(s).filter { expired(it.name, current, s.davKeepDays, now) }.forEach { old ->
+        val entries = queryDav(s)
+        val protected = entries.filter { it.auto }.sortedByDescending { it.time }.take(3).map { it.name }.toSet()
+        entries.filter { it.name !in protected && expired(it.name, current, s.davKeepDays, now) }.forEach { old ->
             runCatching { client.newCall(request(fileUrl(s, old.name), s).delete().build()).execute().close() }
         }
     }
@@ -296,7 +322,29 @@ object AutoBackup {
         val s = Settings.value.backup
         client.newCall(request(fileUrl(s, entry.name), s).get().build()).execute().use { r ->
             if (!r.isSuccessful) throw httpError(r.code)
-            r.body?.string() ?: throw BackupError("下载的备份是空的")
+            r.body?.byteStream()?.use { readLimited(it) } ?: throw BackupError("下载的备份是空的")
         }
+    }
+
+    fun readLimited(input: InputStream): String {
+        val output = ByteArrayOutputStream()
+        val buffer = ByteArray(8192)
+        while (true) {
+            val count = input.read(buffer)
+            if (count < 0) break
+            require(output.size() + count <= BackupCodec.MAX_BYTES) { "备份超过 64 MB" }
+            output.write(buffer, 0, count)
+        }
+        return output.toString("UTF-8")
+    }
+
+    suspend fun listSafety(context: Context): List<BackupEntry> = withContext(Dispatchers.IO) {
+        File(context.filesDir, "recovery").listFiles().orEmpty().filter { it.isFile && it.name.endsWith(".json") }
+            .map { BackupEntry(it.name, it.lastModified(), it.length(), false, it.name) }.sortedByDescending { it.time }
+    }
+
+    suspend fun readSafety(context: Context, entry: BackupEntry): String = withContext(Dispatchers.IO) {
+        require(Regex("恢复前备份-[0-9]+-[0-9a-f]{16}\\.json").matches(entry.id)) { "非法恢复文件" }
+        File(File(context.filesDir, "recovery"), entry.id).inputStream().use { readLimited(it) }
     }
 }
