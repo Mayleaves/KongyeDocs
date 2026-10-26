@@ -1,0 +1,5 @@
+<resources>
+    <color name="ic_launcher_background">#FFFFFF</color>
+    <!-- 与 Moji.Surface 的深色取值一致 -->
+    <color name="night_surface">#1C1D1F</color>
+</resources>

@@ -1,0 +1,10 @@
+<!-- 系统启动画面只显示纯白；一笔画动画由应用自己绘制（IntroOverlay），时长不受系统 1 秒的限制 -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#00000000"
+        android:pathData="M0,0" />
+</vector>
