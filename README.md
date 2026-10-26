@@ -56,7 +56,7 @@
 ## 项目结构
 
 ```
-app/src/main/java/com/moji/notes/
+app/src/main/java/com/kongye/docs/
 ├── data/          数据模型、存储（Repository）、设置、模板、本地 / WebDAV 备份
 ├── render/        把文档绘制成分享用的长图
 ├── ui/
@@ -80,13 +80,13 @@ app/src/main/java/com/moji/notes/
 
 release 包沿用 debug 签名。自行构建时使用本机的 debug.keystore，证书可能与发布包不同；覆盖已安装的发布版本请使用 Releases 中的 APK。
 
-debug 包使用独立包名 `com.moji.notes.audit` 和“空叶文档测试”名称，可与正式版本并存。真机存储回归测试使用合成数据和独立目录：
+debug 包使用独立包名 `com.kongye.docs.audit` 和“空叶文档测试”名称，可与正式版本并存。真机存储回归测试使用合成数据和独立目录：
 
 ```bash
 ./gradlew assembleDebug assembleDebugAndroidTest assembleRelease lintRelease
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 adb install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
-adb shell am instrument -w com.moji.notes.audit.test/com.moji.notes.RegressionInstrumentation
+adb shell am instrument -w com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
 ```
 
 ## 声明

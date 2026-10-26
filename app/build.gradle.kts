@@ -5,16 +5,16 @@ plugins {
 }
 
 android {
-    namespace = "com.moji.notes"
+    namespace = "com.kongye.docs"
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "com.moji.notes"
+        applicationId = "com.kongye.docs"
         minSdk = 26
         targetSdk = 36
-        versionCode = 13
-        versionName = "2.2"
-        testInstrumentationRunner = "com.moji.notes.RegressionInstrumentation"
+        versionCode = 16
+        versionName = "2.5"
+        testInstrumentationRunner = "com.kongye.docs.RegressionInstrumentation"
         manifestPlaceholders["appLabel"] = "空叶文档"
     }
 

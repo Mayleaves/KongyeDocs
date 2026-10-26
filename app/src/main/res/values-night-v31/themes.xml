@@ -1,6 +1,6 @@
 <resources>
     <!-- 深色模式下系统启动画面也用深色底，紧接着播放深色的一笔画动画 -->
-    <style name="Theme.Moji" parent="android:Theme.Material.NoActionBar">
+    <style name="Theme.Kongye" parent="android:Theme.Material.NoActionBar">
         <item name="android:windowBackground">@color/night_surface</item>
         <item name="android:statusBarColor">@android:color/transparent</item>
         <item name="android:navigationBarColor">@android:color/transparent</item>

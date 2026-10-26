@@ -7,7 +7,7 @@
 
     <!-- usesCleartextTraffic：允许 http:// 地址的 WebDAV（家里的 NAS 常用 http） -->
     <application
-        android:name=".MojiApplication"
+        android:name=".KongyeApplication"
         android:allowBackup="true"
         android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -16,7 +16,7 @@
         android:label="${appLabel}"
         android:supportsRtl="true"
         android:usesCleartextTraffic="true"
-        android:theme="@style/Theme.Moji">
+        android:theme="@style/Theme.Kongye">
 
         <activity
             android:name=".MainActivity"

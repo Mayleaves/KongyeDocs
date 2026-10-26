@@ -20,5 +20,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "MojiNotes"
+rootProject.name = "KongyeDocs"
 include(":app")
