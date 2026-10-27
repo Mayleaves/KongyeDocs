@@ -9,9 +9,7 @@
 
 一款用 Kotlin + Jetpack Compose 编写的原生 Android 笔记应用（不是网页套壳）。默认在手机本地保存内容，无需注册，可选 WebDAV 云端备份。
 
-[下载APK](https://github.com/Mayleaves/KongyeDocs/releases) · [更新记录](CHANGELOG.md)
-
-当前版本：[v2.10](https://github.com/Mayleaves/KongyeDocs/releases/tag/v2.10)。支持正文跨段选择、输入法正文全选、本地版本增删对比，以及 GitHub 在线更新。详细变化见[更新日志](CHANGELOG.md)。
+[下载APK](https://github.com/Mayleaves/KongyeDocs/releases) · [更新日志](CHANGELOG.md)
 
 ## 功能
 
