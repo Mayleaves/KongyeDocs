@@ -7,6 +7,10 @@ import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.Easing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -151,7 +155,8 @@ fun IntroOverlay() {
         Modifier.fillMaxSize()
             .graphicsLayer { alpha = 1f - exit.value }
             .background(Kongye.Surface)
-            .pointerInput(Unit) { detectTapGestures { } }
+            .semantics { contentDescription = "启动画面，点击跳过" }
+            .clickable(remember { MutableInteractionSource() }, indication = null) { IntroState.played = true; visible = false }
             // 整体比正中略微靠上（底部多留 150dp，内容上移约 75dp）
             .padding(bottom = 150.dp),
         horizontalAlignment = Alignment.CenterHorizontally,

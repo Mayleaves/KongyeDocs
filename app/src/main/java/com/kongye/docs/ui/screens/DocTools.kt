@@ -63,6 +63,8 @@ import com.kongye.docs.data.VersionKind
 import com.kongye.docs.render.DocRenderer
 import com.kongye.docs.ui.AppState
 import com.kongye.docs.ui.Screen
+import com.kongye.docs.ui.components.ActionSheet
+import com.kongye.docs.ui.components.SheetAction
 import com.kongye.docs.ui.components.ConfirmDialog
 import com.kongye.docs.ui.components.EmptyState
 import com.kongye.docs.ui.components.HLine
@@ -217,12 +219,10 @@ fun FooterDialog(onDismiss: () -> Unit) {
     }
 }
 
-// ---------------- 查看历史 / 本地版本 ----------------
+// ---------------- 本地版本 ----------------
 
 @Composable
-fun VersionsScreen(docId: String, kind: VersionKind) {
-    if (kind == VersionKind.LOCAL) LocalVersionsScreen(docId) else HistoryScreen(docId)
-}
+fun VersionsScreen(docId: String) { LocalVersionsScreen(docId) }
 
 /**
  * 本地版本（石墨样式）：顶部说明和“了解详情”，“系统自动备份”开关（每 10 分钟存一个本地版本），
@@ -315,80 +315,8 @@ private fun LocalVersionsScreen(docId: String) {
             "本地版本",
             "本地版本只保存在这台手机里，不会上传到任何地方。\n\n" +
                 "开启“系统自动备份”后，编辑文档时每 10 分钟会自动存一个版本；也可以随时点右上角“保存版本”手动存一个。\n\n" +
-                "点开某个版本可以预览，并把文档恢复成那时的样子。每篇文档最多保留最近 30 个本地版本。",
+                "点开某个版本可以对比和预览，也可以恢复此版本、生成副本文档或删除这个版本。每篇文档最多保留最近 30 个本地版本。",
         ) { showHelp = false }
-    }
-}
-
-@Composable
-private fun HistoryScreen(docId: String) {
-    val kind = VersionKind.HISTORY
-    var refresh by remember { mutableIntStateOf(0) }
-    val list = remember(docId, kind, refresh) { Repository.versions(docId).filter { it.kind == kind } }
-    val history = kind == VersionKind.HISTORY
-    Column(Modifier.fillMaxSize().background(Kongye.Surface)) {
-        TopBar(title = if (history) "查看历史" else "本地版本", onBack = { AppState.pop() }, divider = true) {
-            if (!history) {
-                Text(
-                    "保存当前版本",
-                    Modifier.clip(RoundedCornerShape(6.dp)).clickable {
-                        val item = Repository.get(docId) ?: return@clickable
-                        val saved = Repository.addVersion(docId, VersionKind.LOCAL, item.title, Repository.loadDoc(docId), "手动保存")
-                        if (saved) Toast.done("已保存当前版本") else Toast.show("当前内容已经保存过")
-                        refresh++
-                    }.padding(horizontal = 12.dp, vertical = 8.dp),
-                    fontSize = 15.sp, color = Kongye.Ink2,
-                )
-            }
-        }
-        Text(
-            if (history) "编辑文档时会自动记录历史版本，最多保留 50 个。点开可以预览和恢复。"
-            else "这里是手动保存的版本，以及恢复历史版本、全部替换之前自动留下的备份，最多保留 30 个。",
-            Modifier.fillMaxWidth().background(Kongye.Band).padding(horizontal = 20.dp, vertical = 10.dp),
-            fontSize = 12.sp, color = Kongye.Sub, lineHeight = 18.sp,
-        )
-        if (list.isEmpty()) {
-            EmptyState(if (history) "还没有历史版本" else "还没有本地版本", if (history) "编辑并离开文档后会自动记录" else "点击右上角「保存当前版本」")
-        } else {
-            val groups = list.groupBy { dateHeader(it.time) }
-            LazyColumn(Modifier.fillMaxSize()) {
-                groups.forEach { (date, versions) ->
-                    item(key = "h-$date") {
-                        Text(date, Modifier.padding(start = 20.dp, top = 16.dp, bottom = 6.dp), fontSize = 15.sp, color = Kongye.Ink2)
-                    }
-                    items(versions, key = { it.id }) { v ->
-                        VersionRow(v, latest = v.id == list.first().id) { AppState.push(Screen.VersionPreview(docId, v.id)) }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun VersionRow(v: DocVersion, latest: Boolean, onClick: () -> Unit) {
-    Row(
-        Modifier.fillMaxWidth().height(68.dp).clickable(onClick = onClick).padding(start = 20.dp, end = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(if (v.kind == VersionKind.HISTORY) KongyeIcons.HistoryFilled else KongyeIcons.SaveFilled, null, Modifier.size(22.dp), tint = Kongye.Icon2)
-        Spacer(Modifier.width(16.dp))
-        Column(Modifier.weight(1f)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(stampTime(v.time), fontSize = 16.sp, color = Kongye.Ink)
-                if (latest) {
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        "最新", Modifier.clip(RoundedCornerShape(3.dp)).background(Kongye.Bg2).padding(horizontal = 6.dp, vertical = 1.dp),
-                        fontSize = 11.sp, color = Kongye.Ink2,
-                    )
-                }
-            }
-            Spacer(Modifier.height(3.dp))
-            val note = if (v.note.isNotEmpty()) " · ${v.note}" else ""
-            Text("${v.title.ifBlank { "无标题" }} · ${v.words} 字$note", fontSize = 13.sp, color = Kongye.Sub, maxLines = 1)
-        }
-        Icon(KongyeIcons.ChevronRight, null, Modifier.size(18.dp), tint = Kongye.Text4)
     }
 }
 
@@ -399,11 +327,18 @@ fun VersionPreviewScreen(docId: String, versionId: String) {
         LaunchedEffect(Unit) { AppState.pop() }
         return
     }
+    val current=remember(docId,versionId) {
+        com.kongye.docs.ui.editor.EditorSession.snapshot(docId)
+            ?: (Repository.get(docId)?.title.orEmpty() to Repository.loadDoc(docId))
+    }
+    var showChanges by remember(versionId) { mutableStateOf(true) }
     var tiles by remember { mutableStateOf<List<ImageBitmap>?>(null) }
     var confirm by remember { mutableStateOf(false) }
+    var actionsOpen by remember(versionId) { mutableStateOf(false) }
+    var deleting by remember(versionId) { mutableStateOf(false) }
     val context = LocalContext.current
-    LaunchedEffect(versionId) {
-        tiles = withContext(Dispatchers.Default) { slice(renderExport(context, version.title, version.content, "")) }
+    LaunchedEffect(versionId,showChanges) {
+        if(!showChanges && tiles==null) tiles=withContext(Dispatchers.Default) { slice(renderExport(context,version.title,version.content,"")) }
     }
     Column(Modifier.fillMaxSize().background(pageBg)) {
         Row(
@@ -415,10 +350,42 @@ fun VersionPreviewScreen(docId: String, versionId: String) {
                 Text(stampTime(version.time), fontSize = 16.sp, color = Kongye.Ink)
                 Text("${version.words} 字", fontSize = 12.sp, color = Kongye.Sub)
             }
-            DarkButton("恢复此版本", true) { confirm = true }
+            IconBtn(KongyeIcons.More, { actionsOpen = true }, tint = Kongye.Ink2, description = "版本操作")
         }
         HLine(color = Kongye.Divider)
-        RenderedPages(tiles)
+        Row(Modifier.fillMaxWidth().background(Kongye.Surface).padding(horizontal=18.dp,vertical=10.dp)) {
+            Text("修改对比",Modifier.clickable { showChanges=true }.padding(end=24.dp),color=if(showChanges) Kongye.Primary else Kongye.Text2,fontSize=14.sp)
+            Text("文档预览",Modifier.clickable { showChanges=false },color=if(!showChanges) Kongye.Primary else Kongye.Text2,fontSize=14.sp)
+        }
+        if(showChanges) VersionChanges(version,current.first,current.second) else RenderedPages(tiles)
+    }
+    if (actionsOpen) {
+        ActionSheet(
+            onDismiss = { actionsOpen = false },
+            actions = listOf(
+                SheetAction(KongyeIcons.Restore, "恢复此版本") { confirm = true },
+                SheetAction(KongyeIcons.Copy, "生成副本文档") {
+                    runCatching { Repository.duplicateVersion(docId, versionId) }
+                        .onSuccess { item -> Toast.done("已生成副本文档"); AppState.openFromTemplate(item.id, item.parentId) }
+                        .onFailure { Toast.show(it.message ?: "生成副本失败") }
+                },
+                SheetAction(KongyeIcons.Trash, "删除版本", danger = true) { deleting = true },
+            ),
+        )
+    }
+    if (deleting) {
+        ConfirmDialog(
+            title = "删除版本",
+            message = "删除这个本地版本？当前文档正文和其他版本会保留。",
+            confirmText = "删除",
+            danger = true,
+            onDismiss = { deleting = false },
+        ) {
+            deleting = false
+            runCatching { Repository.deleteVersion(docId, versionId) }
+                .onSuccess { Toast.done("版本已删除"); AppState.pop() }
+                .onFailure { Toast.show(it.message ?: "删除版本失败") }
+        }
     }
     if (confirm) {
         ConfirmDialog(
@@ -428,10 +395,17 @@ fun VersionPreviewScreen(docId: String, versionId: String) {
             onDismiss = { confirm = false },
         ) {
             confirm = false
-            Repository.restoreVersion(docId, version)
-            Toast.done("已恢复到 ${stampTime(version.time)} 的版本")
-            AppState.pop()
-            AppState.pop()
+            runCatching {
+                com.kongye.docs.ui.editor.EditorSession.snapshot(docId)?.let { (title, content) ->
+                    Repository.saveDoc(docId, title, content)
+                }
+                Repository.restoreVersion(docId, version)
+                com.kongye.docs.ui.editor.EditorSession.reload(docId)
+            }.onSuccess {
+                Toast.done("已恢复到 ${stampTime(version.time)} 的版本")
+                AppState.pop()
+                AppState.pop()
+            }.onFailure { Toast.show(it.message ?: "恢复失败，原内容已保留") }
         }
     }
 }

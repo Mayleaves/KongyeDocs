@@ -68,7 +68,7 @@ internal fun SettingsTitle(text: String) {
 }
 
 @Composable
-internal fun SettingRow(label: String, value: String? = null, last: Boolean = false, valueColor: androidx.compose.ui.graphics.Color = Kongye.Sub, onClick: () -> Unit) {
+internal fun SettingRow(label: String, value: String? = null, last: Boolean = false, valueColor: androidx.compose.ui.graphics.Color = Kongye.Sub, showChevron: Boolean = true, onClick: () -> Unit) {
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
         Row(Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(label, fontSize = 16.sp, color = Kongye.Ink)
@@ -78,7 +78,7 @@ internal fun SettingRow(label: String, value: String? = null, last: Boolean = fa
                 maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.End,
             )
             Spacer(Modifier.width(6.dp))
-            Icon(KongyeIcons.ChevronRight, null, Modifier.size(18.dp), tint = Kongye.Text4)
+            if (showChevron) Icon(KongyeIcons.ChevronRight, null, Modifier.size(18.dp), tint = Kongye.Text4)
         }
         if (!last) HLine(Modifier.padding(horizontal = 20.dp), color = Kongye.Divider)
     }
@@ -99,7 +99,7 @@ internal fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> U
 @Composable
 internal fun <T> ChoiceSheet(title: String, options: List<Pair<T, String>>, selected: T, onDismiss: () -> Unit, onPick: (T) -> Unit) {
     BottomSheet(onDismiss) { dismiss ->
-        Text(title, Modifier.padding(start = 20.dp, top = 18.dp, bottom = 8.dp), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Kongye.Text)
+        Text(title, Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 12.dp), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Kongye.Text, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         options.forEach { (v, label) ->
             Row(
                 Modifier.fillMaxWidth().height(54.dp).clickable { dismiss { onPick(v) } }.padding(horizontal = 20.dp),

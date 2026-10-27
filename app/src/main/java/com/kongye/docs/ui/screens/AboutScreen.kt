@@ -114,8 +114,6 @@ fun AboutScreen() {
     val alive = remember(items) { items.filter { Repository.isAlive(it, items) } }
     val aliveDocs = alive.filter { it.isDoc }
     val words = aliveDocs.sumOf { it.words }
-    val folders = alive.count { it.isFolder }
-    val comments = remember(items) { Repository.commentCount(aliveDocs.map { it.id }) }
     // 占用空间：应用本身 + 全部数据（和系统设置里看到的一致）；以及其中笔记数据的大小
     var storage by remember { mutableStateOf<Pair<Long, Long>?>(null) }
     LaunchedEffect(Unit) { storage = withContext(Dispatchers.IO) { appStorage(context) } }
@@ -186,27 +184,17 @@ fun AboutScreen() {
                     HLine(color = Kongye.Line)
                     AboutRow("已写下", String.format(Locale.US, "%,d 字", words))
                     AboutRow("相当于", if (words >= 28) "${words / 28} 首七言绝句" else "还不够一首绝句，接着写吧")
-                    AboutRow("文档", "${aliveDocs.size} 篇")
-                    AboutRow("文件夹", "$folders 个")
-                    AboutRow("评论", "$comments 条")
-                    AboutRow("占用空间", storage?.let { sizeText(it.first) } ?: "计算中…", last = true) {
-                        storage?.let { (total, notes) ->
-                            Toast.show(if (total > notes) "其中笔记和图片 ${sizeText(notes).ifEmpty { "0 KB" }}，其余是应用本身和缓存" else "全部是笔记和图片")
+                    UpdateEntries(between = {
+                        SettingRow("占用空间",storage?.let { sizeText(it.first) } ?: "计算中…",showChevron=false) {
+                            storage?.let { (total,notes) ->
+                                Toast.show(if(total > notes) "其中笔记和图片 ${sizeText(notes).ifEmpty { "0 KB" }}，其余是应用本身和缓存" else "全部是笔记和图片")
+                            }
                         }
-                    }
+                    })
                     HLine(color = Kongye.Line)
                 }
                 Spacer(Modifier.height(36.dp))
                 Text("愿每一片叶子，都有字可落。", fontSize = 12.sp, color = Kongye.Text4)
-                // 版本号：长按有一句悄悄话
-                Text(
-                    "版本 $APP_VERSION",
-                    Modifier.padding(top = 4.dp).clip(RoundedCornerShape(6.dp)).combinedClickable(
-                        onClick = {},
-                        onLongClick = { Toast.show("这是空叶文档的第 ${APP_VERSION.substringAfter('.').toIntOrNull()?.plus(1) ?: 1} 个版本，谢谢你一路提的每一条建议") },
-                    ).padding(horizontal = 8.dp, vertical = 2.dp),
-                    fontSize = 11.sp, color = Kongye.Text4,
-                )
                 Spacer(Modifier.navigationBarsPadding().height(36.dp))
             }
         }

@@ -55,21 +55,24 @@ object AutoBackup {
             .build()
     }
 
-    /** 到时间了才备份（打开 / 离开应用时调用） */
-    fun runIfDue(context: Context, includeChanges: Boolean = false) {
+    internal fun isDue(lastSuccess: Long, intervalHours: Int, now: Long): Boolean =
+        lastSuccess <= 0L || (now >= lastSuccess && now - lastSuccess >= intervalHours.coerceAtLeast(1).toLong() * HOUR)
+
+    /** Lifecycle and system jobs only check the configured minimum interval. */
+    fun runIfDue(context: Context) {
         val app = context.applicationContext
         BackupJobService.schedule(app)
-        scope.launch { runCatching { runAuto(app, includeChanges) } }
+        scope.launch { runCatching { runAuto(app) } }
     }
 
-    suspend fun runScheduled(context: Context) { runCatching { runAuto(context.applicationContext, false) } }
+    suspend fun runScheduled(context: Context) { runCatching { runAuto(context.applicationContext) } }
 
-    private suspend fun runAuto(ctx: Context, includeChanges: Boolean) = mutex.withLock {
+    private suspend fun runAuto(ctx: Context) = mutex.withLock {
         val s = Settings.value.backup
         val now = System.currentTimeMillis()
         val revision = Repository.revision
-        val doLocal = s.localEnabled && s.localTree.isNotEmpty() && (now - s.lastLocal >= s.intervalHours * HOUR || includeChanges && revision != s.lastLocalRevision)
-        val doDav = s.davEnabled && s.davUrl.isNotBlank() && (now - s.lastDav >= s.davIntervalHours * HOUR || includeChanges && revision != s.lastDavRevision)
+        val doLocal = s.localEnabled && s.localTree.isNotEmpty() && isDue(s.lastLocal, s.intervalHours, now)
+        val doDav = s.davEnabled && s.davUrl.isNotBlank() && isDue(s.lastDav, s.davIntervalHours, now)
         if (!doLocal && !doDav) return@withLock
         val data = try { Repository.exportBackup() } catch (error: Exception) {
             Settings.updateBackup { it.copy(localError = if (doLocal) describe(error) else it.localError, davError = if (doDav) describe(error) else it.davError) }
@@ -101,7 +104,7 @@ object AutoBackup {
 
     private fun manualName() = MANUAL_PREFIX + synchronized(stamp) { stamp.format(Date()) } + "-${newId()}" + ".json"
 
-    private fun isBackupName(name: String) = name.endsWith(".json") && (name.startsWith(PREFIX) || name.startsWith(MANUAL_PREFIX))
+    private fun isBackupName(name: String) = name.none { it == '/' || it.code == 92 || it.code < 32 } && name.endsWith(".json") && (name.startsWith(PREFIX) || name.startsWith(MANUAL_PREFIX))
 
     /** 文件名里的时间（自动备份精确到秒；旧版手动备份只到分钟） */
     private fun nameTime(name: String): Long? {
@@ -189,6 +192,19 @@ object AutoBackup {
         val tree = Uri.parse(Settings.value.backup.localTree)
         val uri = DocumentsContract.buildDocumentUriUsingTree(tree, entry.id)
         context.contentResolver.openInputStream(uri)?.use { readLimited(it) } ?: throw BackupError("无法读取备份文件")
+    }
+
+    /** 删除授权目录内选中的备份，并确认系统文件提供方已移除文件。 */
+    suspend fun deleteLocal(context: Context, entry: BackupEntry, treeUri: String = Settings.value.backup.localTree) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            require(treeUri.isNotBlank() && isBackupName(entry.name)) { "非法备份文件" }
+            val tree = Uri.parse(treeUri)
+            val exists = queryLocal(context, tree).firstOrNull { it.id == entry.id && it.name == entry.name }
+            if (exists != null) {
+                check(DocumentsContract.deleteDocument(context.contentResolver, DocumentsContract.buildDocumentUriUsingTree(tree, exists.id))) { "文件提供方拒绝删除备份" }
+                check(queryLocal(context, tree).none { it.id == exists.id }) { "备份文件仍存在，请刷新后重试" }
+            }
+        }
     }
 
     // ---------------- 云端（WebDAV） ----------------
@@ -323,6 +339,32 @@ object AutoBackup {
         client.newCall(request(fileUrl(s, entry.name), s).get().build()).execute().use { r ->
             if (!r.isSuccessful) throw httpError(r.code)
             r.body?.byteStream()?.use { readLimited(it) } ?: throw BackupError("下载的备份是空的")
+        }
+    }
+
+    /** WebDAV DELETE 实际移除远端文件；不接受目录或任意文件名。 */
+    suspend fun deleteDav(entry: BackupEntry, settings: BackupSettings = Settings.value.backup) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            require(isBackupName(entry.name) && entry.id == entry.name) { "非法云端备份文件" }
+            val found = queryDav(settings).firstOrNull { it.name == entry.name }
+            if (found != null) {
+                client.newCall(request(fileUrl(settings, found.name), settings).delete().build()).execute().use { response ->
+                    if (!response.isSuccessful && response.code != 404) throw httpError(response.code)
+                }
+                check(queryDav(settings).none { it.name == found.name }) { "云端仍返回此备份，请刷新后重试" }
+            }
+        }
+    }
+
+    suspend fun deleteSafety(context: Context, entry: BackupEntry) = withContext(Dispatchers.IO) {
+        mutex.withLock {
+            require(Regex("恢复前备份-[0-9]+-[0-9a-f]{16}\\.json").matches(entry.id) && entry.id == entry.name) { "非法恢复文件" }
+            val root = File(context.filesDir, "recovery").canonicalFile
+            val target = File(root, entry.id).canonicalFile
+            require(target.parentFile == root) { "备份路径越界" }
+            check(!target.exists() || target.delete()) { "无法删除安全备份" }
+            val previous = File(root, entry.id + ".bak")
+            check(!previous.exists() || previous.delete()) { "无法删除安全备份副本" }
         }
     }
 

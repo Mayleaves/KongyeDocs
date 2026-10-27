@@ -25,6 +25,7 @@ import com.kongye.docs.data.Settings
 import com.kongye.docs.data.StyleRange
 import com.kongye.docs.data.VersionKind
 import com.kongye.docs.data.canFirstIndent
+import com.kongye.docs.data.plainText
 import com.kongye.docs.ui.components.Toast
 import kotlin.math.max
 
@@ -57,6 +58,14 @@ class BlockState(b: Block) {
 
     val text: String get() = value.text.removePrefix(ZWS)
 
+    fun restore(block: Block, caret: Int) {
+        type=block.type
+        value=TextFieldValue(ZWS+block.text,TextRange(caret.coerceIn(1,block.text.length+1)))
+        spans=block.spans.shifted(1); checked=block.checked; indent=block.indent
+        align=block.align; image=block.image; imageRatio=block.imageRatio
+        table=block.table; firstIndent=block.firstIndent; typing=null
+    }
+
     fun toBlock() = Block(
         id = id, type = type, text = text, spans = spans.shifted(-1).normalized(text.length),
         checked = checked, indent = indent, align = align, image = image, imageRatio = imageRatio, table = table,
@@ -74,6 +83,10 @@ class EditorState(val docId: String, val isNew: Boolean) {
     var pendingFocus by mutableStateOf<PendingFocus?>(null)
     var version by mutableIntStateOf(0)
         private set
+    var inputGeneration by mutableIntStateOf(0)
+        private set
+    var inputEpoch by mutableIntStateOf(0)
+        private set
     var savedVersion by mutableIntStateOf(0)
         private set
     var lastSavedAt by mutableLongStateOf(0L)
@@ -84,7 +97,7 @@ class EditorState(val docId: String, val isNew: Boolean) {
         private set
 
     data class CellRef(val blockId: String, val row: Int, val col: Int)
-    data class PendingFocus(val blockId: String, val pos: Int, val nonce: Long = System.nanoTime())
+    data class PendingFocus(val blockId: String, val pos: Int, val nonce: Long = System.nanoTime(), val showKeyboard: Boolean = true)
     private data class Snap(val title: String, val blocks: List<Block>, val focusId: String?, val pos: Int)
 
     /** 正在给 [start, end)（输入框偏移）写一条新评论 */
@@ -100,6 +113,10 @@ class EditorState(val docId: String, val isNew: Boolean) {
     private val redoStack = ArrayDeque<Snap>()
     private var lastTypingAt = 0L
     private var charSelect: CharSelect? = null
+    private var charSelectEpoch = 0L
+    val selection = DocumentSelection(this)
+    val articleSelected get() = selection.all
+
 
     /** 本次编辑期间的全部评论；只有在正文里还挂着锚点的才会保存 */
     val comments = mutableStateListOf<CommentThread>()
@@ -115,8 +132,6 @@ class EditorState(val docId: String, val isNew: Boolean) {
         comments += doc.comments
         if (blocks.isEmpty()) blocks += BlockState(Block())
         lastSavedAt = item?.updatedAt ?: 0L
-        // 第一次打开时留一个初始版本，之后的历史都能退回到这里
-        if (Repository.versions(docId).none { it.kind == VersionKind.HISTORY }) recordHistory("初始版本")
     }
 
     val focused: BlockState? get() = focusedId?.let { id -> blocks.firstOrNull { it.id == id } }
@@ -141,24 +156,63 @@ class EditorState(val docId: String, val isNew: Boolean) {
         savedVersion = version
         lastSavedAt = System.currentTimeMillis()
         runCatching {
-        // 长时间连续编辑时，每 10 分钟记录一次历史版本
-        if (lastSavedAt - Repository.lastVersionTime(docId, VersionKind.HISTORY) > 10 * 60 * 1000L) recordHistory()
-        // 开着“系统自动备份”时，每 10 分钟再存一个本地版本
-        if (Settings.value.autoLocalVersion && !isEmptyDoc() &&
-            lastSavedAt - Repository.lastVersionTime(docId, VersionKind.LOCAL) > 10 * 60 * 1000L
-        ) Repository.addVersion(docId, VersionKind.LOCAL, title.text, content(), "自动备份")
-        }.onFailure { Toast.show("正文已保存，但版本保存失败：${it.message}") }
+            if(Settings.value.autoLocalVersion && !isEmptyDoc() &&
+                lastSavedAt-Repository.lastVersionTime(docId,VersionKind.LOCAL)>10*60*1000L)
+                Repository.addVersion(docId,VersionKind.LOCAL,title.text,content(),"自动备份")
+        }.onFailure { Toast.show("正文已保存，但本地版本保存失败：${it.message}") }
         return true
     }
 
-    /** 记录一条历史版本；内容与上一条相同则不重复记录 */
-    fun recordHistory(note: String = "") {
-        if (!isEmptyDoc()) Repository.addVersion(docId, VersionKind.HISTORY, title.text, content(), note)
+    /** Closing a document saves its content without adding an extra local snapshot. */
+    fun closeDocument(): Boolean = save()
+
+    fun reloadSavedContent() {
+        inputGeneration++
+        val doc=Repository.loadDoc(docId)
+        checkpoint()
+        title=TextFieldValue(Repository.get(docId)?.title.orEmpty())
+        blocks.clear(); doc.blocks.forEach { blocks+=BlockState(it) }
+        comments.clear(); comments+=doc.comments
+        clearArticleSelection(); changed(); savedVersion=version
+    }
+
+    fun selectedArticleText(): String = if (selection.active) selection.text() else content().plainText()
+
+    fun selectArticle() { cancelCharSelect(); selection.selectAll() }
+    fun clearArticleSelection() { if(selection.active) selection.clear() }
+    internal fun selectionEdited() { changed() }
+
+    fun replaceArticleSelection(text: String) {
+        checkpoint()
+        val retained=focused?.takeIf { selection.fromKeyboard && it.type.isText && !text.contains('\n') && !text.contains('\r') }
+        clearArticleSelection()
+        if(retained!=null) {
+            retained.value=TextFieldValue(ZWS+text,TextRange(1+text.length))
+            retained.spans=emptyList(); retained.typing=null
+            blocks.clear(); blocks+=retained
+            focusedId=retained.id; focusedCell=null
+            lastTypingAt=SystemClock.uptimeMillis()
+            changed()
+            return
+        }
+        inputGeneration++
+        blocks.clear()
+        text.replace("\r\n","\n").replace('\r','\n').split('\n').forEach { blocks+=BlockState(Block(text=it)) }
+        focusedCell=null
+        blocks.last().let { requestFocus(it,it.value.text.length) }
+        changed()
+    }
+
+    private fun insertedText(old: String, next: String): String {
+        val prefix=commonPrefix(old,next)
+        var suffix=0
+        while(suffix<old.length-prefix && suffix<next.length-prefix && old[old.lastIndex-suffix]==next[next.lastIndex-suffix]) suffix++
+        return next.substring(prefix,next.length-suffix).removePrefix(ZWS)
     }
 
     private fun changed() { version++ }
 
-    fun requestFocus(b: BlockState, pos: Int) { pendingFocus = PendingFocus(b.id, pos) }
+    fun requestFocus(b: BlockState, pos: Int, showKeyboard: Boolean = true) { pendingFocus = PendingFocus(b.id, pos, showKeyboard=showKeyboard) }
 
     // ---------------- 撤销 / 重做 ----------------
 
@@ -180,24 +234,46 @@ class EditorState(val docId: String, val isNew: Boolean) {
         lastTypingAt = now
     }
 
-    fun undo() {
+    fun undo(showKeyboard: Boolean = true) {
         val s = undoStack.removeLastOrNull() ?: return
         redoStack.addLast(snap())
-        restore(s)
+        restore(s,showKeyboard)
     }
 
-    fun redo() {
+    fun redo(showKeyboard: Boolean = true) {
         val s = redoStack.removeLastOrNull() ?: return
         undoStack.addLast(snap())
-        restore(s)
+        restore(s,showKeyboard)
     }
 
-    private fun restore(s: Snap) {
+    private fun restore(s: Snap, showKeyboard: Boolean) {
+        val previous=blocks.associateBy { it.id }
+        val currentFocus=focusedId
+        val currentCell=focusedCell
+        // Transfer focus before removing a split paragraph when its original
+        // field still exists; the IME never has to close between the two fields.
+        previous[s.focusId]?.takeIf { it.type.isText && it.id!=currentFocus && showKeyboard }?.let {
+            runCatching { it.focus.requestFocus() }
+        }
+        val attachedFocus=focusedId
+        inputEpoch++ // Invalidate queued callbacks without destroying input fields.
+        pendingFocus=null
+        clearArticleSelection()
         title = TextFieldValue(s.title, TextRange(s.title.length))
-        blocks.clear()
-        s.blocks.forEach { blocks += BlockState(it) }
+        val restored=s.blocks.map { block ->
+            previous[block.id]?.also { old -> old.restore(block,if(block.id==s.focusId) s.pos else old.value.selection.end) } ?: BlockState(block)
+        }
+        blocks.clear(); blocks.addAll(restored)
         if (blocks.isEmpty()) blocks += BlockState(Block())
-        blocks.firstOrNull { it.id == s.focusId && it.type.isText }?.let { requestFocus(it, s.pos.coerceIn(1, it.value.text.length)) }
+        val target=blocks.firstOrNull { it.id==s.focusId && it.type.isText }
+            ?: blocks.firstOrNull { it.id==currentFocus && it.type.isText }
+        focusedId=target?.id
+        focusedCell=if(target!=null) null else currentCell?.takeIf { cell ->
+            blocks.firstOrNull { it.id==cell.blockId && it.type==BlockType.TABLE }?.table?.getOrNull(cell.row)?.getOrNull(cell.col)!=null
+        }
+        if(target!=null && (target.id!=attachedFocus || previous[target.id]!==target)) {
+            requestFocus(target,if(target.id==s.focusId) s.pos else target.value.selection.end,showKeyboard)
+        }
         canUndo = undoStack.isNotEmpty()
         canRedo = redoStack.isNotEmpty()
         lastTypingAt = 0L
@@ -207,6 +283,11 @@ class EditorState(val docId: String, val isNew: Boolean) {
     // ---------------- 标题 ----------------
 
     fun onTitleChange(v: TextFieldValue) {
+        if(selection.active) { if(v.text!=title.text) selection.replace(insertedText(title.text,v.text)); return }
+        takeCharSelect(TITLE_KEY,title,v)?.let { selection.set(SelectionPoint(TITLE_KEY,it.selection.min),SelectionPoint(TITLE_KEY,it.selection.max)); return }
+        if(v.text == title.text && !v.selection.collapsed) {
+            selection.set(SelectionPoint(TITLE_KEY,v.selection.min),SelectionPoint(TITLE_KEY,v.selection.max)); return
+        }
         takeCharSelect(TITLE_KEY, title, v)?.let { title = it; return }
         if (v.text.contains('\n')) {
             val clean = v.text.replace("\n", "")
@@ -233,6 +314,19 @@ class EditorState(val docId: String, val isNew: Boolean) {
     fun onValueChange(b: BlockState, incoming: TextFieldValue) {
         // 已被合并删除、但输入框还没销毁的块（失焦时会再回调一次），不再处理
         if (b !in blocks) return
+        if(selection.active) {
+            if(incoming.text!=b.value.text) {
+                val keyboard=selection.fromKeyboard && articleSelected
+                val insertion=insertedText(b.value.text,incoming.text)
+                selection.replace(insertion)
+                if(keyboard && b in blocks && incoming.text==b.value.text) b.value=incoming.copy(selection=TextRange(incoming.selection.start.coerceAtLeast(1),incoming.selection.end.coerceAtLeast(1)))
+            }
+            return
+        }
+        takeCharSelect(b.id,b.value,incoming)?.let { selection.set(SelectionPoint(b.id,it.selection.min.coerceAtLeast(1)),SelectionPoint(b.id,it.selection.max)); return }
+        if(incoming.text == b.value.text && !incoming.selection.collapsed) {
+            selection.set(SelectionPoint(b.id,incoming.selection.min.coerceAtLeast(1)),SelectionPoint(b.id,incoming.selection.max)); return
+        }
         takeCharSelect(b.id, b.value, incoming)?.let {
             b.value = it
             b.typing = null
@@ -466,6 +560,7 @@ class EditorState(val docId: String, val isNew: Boolean) {
     }
 
     fun setAlign(a: Align) {
+        if(selection.active) { checkpoint(); blocks.filter { it.type.isText && selection.containsBlock(it.id) }.forEach { it.align=a }; changed(); return }
         val b = focused ?: return
         if (b.align == a) return
         checkpoint()
@@ -474,6 +569,7 @@ class EditorState(val docId: String, val isNew: Boolean) {
     }
 
     fun indent(delta: Int) {
+        if(selection.active) { checkpoint(); blocks.filter { it.type.isText && selection.containsBlock(it.id) }.forEach { it.indent=(it.indent+delta).coerceIn(0,4) }; changed(); return }
         val b = focused ?: return
         val v = (b.indent + delta).coerceIn(0, 4)
         if (v == b.indent) return
@@ -578,7 +674,18 @@ class EditorState(val docId: String, val isNew: Boolean) {
     // ---------------- 双击选字 ----------------
 
     /** 记下双击点中的字（[start, end) 为输入框偏移） */
-    fun armCharSelect(key: String, start: Int, end: Int) { charSelect = CharSelect(key, start, end) }
+    fun cancelCharSelect() { charSelect=null; charSelectEpoch++ }
+
+    fun armCharSelect(key: String, start: Int, end: Int): Long {
+        charSelect=CharSelect(key,start,end)
+        return ++charSelectEpoch
+    }
+
+    fun completeCharSelect(key: String, start: Int, end: Int, epoch: Long) {
+        if(epoch!=charSelectEpoch) return
+        charSelect=null
+        selection.set(SelectionPoint(key,start),SelectionPoint(key,end))
+    }
 
     /** 输入框因双击而选中一整段时，把选区换成刚才点中的那一个字 */
     private fun takeCharSelect(key: String, old: TextFieldValue, incoming: TextFieldValue): TextFieldValue? {
@@ -599,6 +706,14 @@ class EditorState(val docId: String, val isNew: Boolean) {
     }
 
     fun toggleStyle(style: InlineStyle) {
+        if(selection.active) {
+            val selected=blocks.filter { it.type.isText && !it.value.selection.collapsed && selection.containsBlock(it.id) }
+            val key=StyleKey(style)
+            val on=!selected.all { isFullyStyled(it.spans,it.value.selection.min,it.value.selection.max,key) }
+            checkpoint()
+            selected.forEach { it.spans=applyStyle(it.spans,it.value.selection.min,it.value.selection.max,key,on).normalized(it.value.text.length) }
+            changed(); return
+        }
         val b = focused ?: return
         val key = StyleKey(style)
         val sel = b.value.selection
@@ -615,6 +730,11 @@ class EditorState(val docId: String, val isNew: Boolean) {
 
     /** 设置文字颜色或背景高亮；color = 0 表示清除 */
     fun setColor(style: InlineStyle, color: Long) {
+        if(selection.active) {
+            checkpoint()
+            blocks.filter { it.type.isText && selection.containsBlock(it.id) }.forEach { it.spans=applyStyle(it.spans,it.value.selection.min,it.value.selection.max,StyleKey(style,color),color!=0L).normalized(it.value.text.length) }
+            changed(); return
+        }
         val b = focused ?: return
         val key = StyleKey(style, color)
         val sel = b.value.selection
@@ -629,6 +749,15 @@ class EditorState(val docId: String, val isNew: Boolean) {
     }
 
     fun clearFormat() {
+        if(selection.active) {
+            checkpoint()
+            blocks.filter { it.type.isText && selection.containsBlock(it.id) }.forEach { b ->
+                b.spans.map { it.key() }.distinct().filter { it.style != InlineStyle.COMMENT }.forEach { key ->
+                    b.spans=applyStyle(b.spans,b.value.selection.min,b.value.selection.max,key,false,exactOnly=true)
+                }
+            }
+            changed(); return
+        }
         val b = focused ?: return
         val sel = b.value.selection
         if (sel.collapsed) {
@@ -651,6 +780,7 @@ class EditorState(val docId: String, val isNew: Boolean) {
     }
 
     fun selectedText(): String {
+        if(selection.active) return selection.text()
         val b = focused ?: return ""
         val sel = b.value.selection
         return if (sel.collapsed) "" else b.value.text.substring(sel.min, sel.max)
@@ -734,6 +864,7 @@ class EditorState(val docId: String, val isNew: Boolean) {
     // ---------------- 表格 ----------------
 
     fun setCell(b: BlockState, row: Int, col: Int, v: String) {
+        if(articleSelected) { replaceArticleSelection(insertedText(b.table[row][col],v)); return }
         if (b.table.getOrNull(row)?.getOrNull(col) == v) return
         typingCheckpoint()
         b.table = b.table.mapIndexed { i, r -> if (i == row) r.mapIndexed { j, x -> if (j == col) v else x } else r }

@@ -44,7 +44,6 @@ import com.kongye.docs.ui.screens.FooterDialog
 import com.kongye.docs.ui.screens.ThemeSheet
 import com.kongye.docs.ui.screens.themeLabel
 import com.kongye.docs.data.Settings
-import com.kongye.docs.ui.APP_VERSION
 import androidx.compose.runtime.collectAsState
 import com.kongye.docs.ui.components.HLine
 import com.kongye.docs.ui.components.KongyeIcons
@@ -119,7 +118,7 @@ fun MeTab(items: List<Item>) {
         Band()
         Group {
             MenuRow("深色模式", themeLabel(settings.theme, settings.darkFrom, settings.darkTo)) { editTheme = true }
-            MenuRow("关于", "v$APP_VERSION", last = true) { AppState.push(Screen.About) }
+            MenuRow("关于", last = true) { AppState.push(Screen.About) }
         }
         HLine(color = Kongye.Line)
         Spacer(Modifier.height(40.dp))

@@ -19,6 +19,8 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.jsonArray
+import kotlinx.serialization.json.jsonObject
 import java.io.File
 import java.util.concurrent.ConcurrentHashMap
 import java.io.IOException
@@ -26,7 +28,7 @@ import java.io.IOException
 /** 所有数据保存在应用私有目录：library.json（目录结构）+ docs/<id>.json（正文）+ images/（图片） */
 object Repository {
     private lateinit var app: Context
-    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
+    private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val _problem = MutableStateFlow("")
@@ -63,7 +65,6 @@ object Repository {
     val manualOrders: StateFlow<Map<String, List<String>>> = _manualOrder.asStateFlow()
 
     private const val PREVIEW_LENGTH = 200
-    private const val MAX_HISTORY = 50
     private const val MAX_LOCAL = 30
 
     /** id -> 正文纯文本，供全文搜索 */
@@ -130,7 +131,9 @@ object Repository {
             try { _exports.value = DurableFiles.read(exportsFile) { json.decodeFromString<List<ExportRecord>>(it) } }
             catch (error: Exception) { _problem.value = error.message.orEmpty(); return }
         }
-        // v2.2: never permanently delete user data automatically at startup.
+        // Remove the discontinued HISTORY stream, while keeping manually/timed saved LOCAL versions.
+        try { purgeLegacyHistory() } catch (error: Exception) { _problem.value = error.message.orEmpty(); return }
+        // v2.2: never permanently delete current documents automatically at startup.
         scope.launch(Dispatchers.IO) { buildIndexAndCleanImages() }
     }
 
@@ -497,18 +500,60 @@ object Repository {
         require(BackupCodec.validId(docId)) { "非法文档 ID" }
         val file = File(versionsDir, "$docId.json")
         if (!file.exists() && !File(versionsDir, "$docId.json.bak").exists()) emptyList()
-        else try { DurableFiles.read(file) { json.decodeFromString<List<DocVersion>>(it) }.sortedByDescending { it.time } }
+        else try {
+            var original=""
+            val fallback=File(file.path+".bak")
+            val savedAt=(if(file.isFile) file.lastModified() else fallback.lastModified()).coerceAtLeast(1L)
+            val loaded=DurableFiles.read(file) { text ->
+                val raw=json.parseToJsonElement(text).jsonArray
+                val decoded=json.decodeFromString<List<DocVersion>>(text)
+                original=text
+                decoded.mapIndexed { index,version ->
+                    val fields=raw[index].jsonObject
+                    val rawThreads=fields["content"]?.jsonObject?.get("comments")?.jsonArray
+                    val content=version.content.copy(comments=version.content.comments.mapIndexed { threadIndex,thread ->
+                        val rawComments=rawThreads?.getOrNull(threadIndex)?.jsonObject?.get("comments")?.jsonArray
+                        thread.copy(comments=thread.comments.mapIndexed { commentIndex,comment ->
+                            if(rawComments?.getOrNull(commentIndex)?.jsonObject?.containsKey("time")==true) comment else comment.copy(time=savedAt)
+                        })
+                    })
+                    version.copy(time=if("time" in fields) version.time else savedAt,content=content)
+                }
+            }.sortedByDescending { it.time }
+            val stable=json.encodeToString(loaded)
+            if(stable!=original) {
+                atomicWrite(file,stable)
+                atomicWrite(file,stable) // Keep the recovery copy complete as well.
+            }
+            loaded
+        }
         catch (error: Exception) { failed(error) }
+    }
+
+    @Synchronized
+    private fun purgeLegacyHistory() {
+        _items.value.filter { it.isDoc }.forEach { item ->
+            val all = versions(item.id)
+            val local = all.filter { it.kind == VersionKind.LOCAL }
+            if (local.size != all.size) {
+                val text = json.encodeToString(local)
+                val file = File(versionsDir, "${item.id}.json")
+                atomicWrite(file, text)
+                atomicWrite(file, text) // Rotate the previous copy as well; no HISTORY is left in .bak.
+                versionCache[item.id] = local
+            }
+        }
     }
 
     /** 记录一个版本；与同类最新版本内容完全相同则跳过。返回是否真的记录了 */
     @Synchronized
     fun addVersion(docId: String, kind: VersionKind, title: String, content: DocContent, note: String = ""): Boolean {
+        if (kind != VersionKind.LOCAL) return false
         val all = versions(docId)
         val latest = all.firstOrNull { it.kind == kind }
         if (latest != null && latest.title == title && latest.content == content) return false
         val v = DocVersion(kind = kind, note = note, title = title, content = content, words = countWords(title + "\n" + content.bodyText()))
-        val limit = if (kind == VersionKind.HISTORY) MAX_HISTORY else MAX_LOCAL
+        val limit = MAX_LOCAL
         val kept = (listOf(v) + all).groupBy { it.kind }.flatMap { (k, list) -> if (k == kind) list.take(limit) else list }
             .sortedByDescending { it.time }
         versionCache[docId] = kept
@@ -531,11 +576,34 @@ object Repository {
         persistLibrary()
     }
 
+    /** 按选中的版本新建独立副本，正文、评论及图片均保留。 */
+    @Synchronized
+    fun duplicateVersion(docId: String, versionId: String): Item {
+        writable()
+        val source = get(docId)?.takeIf { it.isDoc } ?: error("原文档不存在")
+        val version = versions(docId).firstOrNull { it.id == versionId } ?: error("该版本不存在")
+        val parent = source.parentId?.takeIf { id -> get(id)?.let { it.isFolder && isAlive(it) } == true }
+        return createDoc(parent, version.title.ifBlank { "无标题" } + " 副本", withCopiedImages(version.content))
+    }
+
+    /** 仅移除选中的版本；正文及可能被其他版本引用的图片不删除。 */
+    @Synchronized
+    fun deleteVersion(docId: String, versionId: String): Boolean {
+        writable()
+        val all = versions(docId)
+        val kept = all.filterNot { it.id == versionId }
+        if (kept.size == all.size) return false
+        atomicWrite(File(versionsDir, "$docId.json"), json.encodeToString(kept))
+        versionCache[docId] = kept
+        persistLibrary()
+        return true
+    }
+
     /** 用某个版本覆盖当前文档；覆盖前先把当前内容存为本地版本 */
     @Synchronized
     fun restoreVersion(docId: String, version: DocVersion) {
         val item = get(docId) ?: return
-        addVersion(docId, VersionKind.LOCAL, item.title, loadDoc(docId), "恢复历史版本前自动保存")
+        addVersion(docId, VersionKind.LOCAL, item.title, loadDoc(docId), "恢复版本前自动保存")
         saveDoc(docId, version.title, version.content)
     }
 
@@ -634,7 +702,7 @@ object Repository {
         writable()
         val items = _items.value
         val docs = items.filter { it.isDoc }.associate { it.id to loadDoc(it.id) }
-        val history = items.filter { it.isDoc }.associate { it.id to versions(it.id) }
+        val history = items.filter { it.isDoc }.associate { it.id to versions(it.id).filter { version -> version.kind == VersionKind.LOCAL } }
         val templates = _templates.value.associate { it.id to templatePreview(it.id) }
         val contents = docs.values + templates.values + history.values.flatten().map { it.content }
         val images = contents.flatMap { d -> d.blocks.mapNotNull { b -> b.image.takeIf { it.isNotEmpty() } } }
@@ -694,11 +762,11 @@ object Repository {
         val nextLibrary = backup.library?.copy(items = merged, templates = mergedTemplates, revision = revision + 1)
             ?: library(merged).copy(nickname = backup.nickname)
         val history = docs.mapValues { (id, _) ->
-            val old = runCatching { versions(id) }.getOrDefault(emptyList())
+            val old = runCatching { versions(id) }.getOrDefault(emptyList()).filter { it.kind == VersionKind.LOCAL }
             val current = get(id)?.takeIf { it.isDoc }?.let { item ->
                 runCatching { DocVersion(kind = VersionKind.LOCAL, title = item.title, content = loadDoc(id), note = "恢复备份前自动保存") }.getOrNull()
             }
-            (listOfNotNull(current) + old + backup.versions[id].orEmpty().map { it.copy(content = remap(it.content)) }).distinctBy { it.id }.sortedByDescending { it.time }
+            (listOfNotNull(current) + old + backup.versions[id].orEmpty().filter { it.kind == VersionKind.LOCAL }.map { it.copy(content = remap(it.content)) }).distinctBy { it.id }.sortedByDescending { it.time }
         }
         val changes = linkedMapOf<String, ByteArray>()
         backup.images.forEach { (name, data) -> changes["images/${renamed.getValue(name)}"] = Base64.decode(data, Base64.NO_WRAP) }

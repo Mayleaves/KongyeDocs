@@ -35,6 +35,9 @@ import com.kongye.docs.data.BackupEntry
 import com.kongye.docs.data.Repository
 import com.kongye.docs.data.Settings
 import com.kongye.docs.ui.AppState
+import com.kongye.docs.ui.components.ActionSheet
+import com.kongye.docs.ui.components.SheetAction
+import com.kongye.docs.ui.components.KongyeIcons
 import com.kongye.docs.ui.components.ConfirmDialog
 import com.kongye.docs.ui.components.HLine
 import com.kongye.docs.ui.components.InputDialog
@@ -144,12 +147,16 @@ fun LocalBackupScreen() {
     var busy by remember { mutableStateOf(false) }
     var safetyBackups by remember { mutableStateOf<List<BackupEntry>?>(null) }
     var safetyPick by remember { mutableStateOf<BackupEntry?>(null) }
+    var selectedBackup by remember { mutableStateOf<Pair<BackupEntry, Boolean>?>(null) }
+    var deletePick by remember { mutableStateOf<Pair<BackupEntry, Boolean>?>(null) }
+    var deletingBackup by remember { mutableStateOf(false) }
+    var reloadKey by remember { mutableStateOf(0) }
     var pendingImport by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) { safetyBackups = AutoBackup.listSafety(context) }
     // 从开关进入选文件夹时，选好后顺便打开自动备份
     var enableAfterPick by remember { mutableStateOf(false) }
 
-    LaunchedEffect(s.localTree, s.lastLocal) {
+    LaunchedEffect(s.localTree, s.lastLocal, reloadKey) {
         if (s.localTree.isEmpty()) {
             backups = emptyList()
             return@LaunchedEffect
@@ -196,7 +203,6 @@ fun LocalBackupScreen() {
     Column(Modifier.fillMaxSize().background(Kongye.Band)) {
         TopBar(title = "本地备份", onBack = { AppState.pop() }, divider = true)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            Hint("备份包含文档、图片、历史版本、自定义模板和下载副本，并进行完整性校验。账号密码和备份目录不导出。备份为未加密 JSON，请妥善保管。")
 
             SettingsTitle("自动备份")
             SettingsGroup {
@@ -237,23 +243,43 @@ fun LocalBackupScreen() {
 
             SettingsTitle("备份恢复")
             SettingsGroup {
-                if (s.localTree.isNotEmpty()) BackupRows(backups, listError, "备份位置里还没有备份") { restoring = it }
+                if (s.localTree.isNotEmpty()) {
+                    BackupRows(backups, listError, "备份位置里还没有备份") { selectedBackup = it to false }
+                }
                 SettingRow("从其他备份文件恢复", last = true) { openFile.launch(backupMimeTypes) }
             }
-            Hint("恢复时，备份里的文档会覆盖同一篇文档的当前内容；备份之后新建的文档会保留。到期清理只删除自动备份，手动备份不会被删除。")
-            Hint("后台会定期检查；离开应用时有新内容会补充备份。恢复前另存安全备份，回收站不再自动永久删除。")
             SettingsTitle("恢复前安全备份")
             SettingsGroup {
-                BackupRows(safetyBackups, "", "还没有恢复前安全备份") { safetyPick = it }
+                BackupRows(safetyBackups, "", "还没有恢复前安全备份") { selectedBackup = it to true }
             }
             Hint("安全备份保存在应用内部，卸载或清除应用数据会删除。需要长期保存时，请另存到外部位置。")
             Spacer(Modifier.navigationBarsPadding().height(24.dp))
         }
     }
 
+    selectedBackup?.let { (entry, safety) ->
+        ActionSheet(onDismiss = { selectedBackup = null }, actions = listOf(
+            SheetAction(KongyeIcons.Restore, "恢复此备份") { if (safety) safetyPick = entry else restoring = entry },
+            SheetAction(KongyeIcons.Trash, "删除备份", danger = true) { deletePick = entry to safety },
+        ))
+    }
+    deletePick?.let { (entry, safety) ->
+        ConfirmDialog(title = "删除备份", message = "将从这台设备删除这份备份文件，删除后无法再用它恢复文档。此操作不能在应用中撤销。当前文档和其他备份不会被删除。", confirmText = "删除", danger = true,
+            onDismiss = { if (!deletingBackup) deletePick = null }) {
+            if (!deletingBackup) {
+                deletingBackup = true
+                scope.launch {
+                    runCatching { if (safety) AutoBackup.deleteSafety(context, entry) else AutoBackup.deleteLocal(context, entry, s.localTree) }
+                        .onSuccess { Toast.done("备份文件已删除"); reloadKey++; safetyBackups = AutoBackup.listSafety(context); deletePick = null }
+                        .onFailure { Toast.show("删除失败：" + AutoBackup.describe(it)) }
+                    deletingBackup = false
+                }
+            }
+        }
+    }
     when (choice) {
         "interval" -> ChoiceSheet("备份频率", intervals, s.intervalHours, { choice = null }) { v -> Settings.updateBackup { it.copy(intervalHours = v) } }
-        "keep" -> ChoiceSheet("旧备份保留多久", keeps, s.keepDays, { choice = null }) { v -> Settings.updateBackup { it.copy(keepDays = v) } }
+        "keep" -> ChoiceSheet("旧备份", keeps, s.keepDays, { choice = null }) { v -> Settings.updateBackup { it.copy(keepDays = v) } }
     }
     restoring?.let { e ->
         RestoreConfirm(e, onDismiss = { restoring = null }) {
@@ -293,6 +319,9 @@ fun CloudBackupScreen() {
     var listError by remember { mutableStateOf("") }
     var restoring by remember { mutableStateOf<BackupEntry?>(null) }
     var busy by remember { mutableStateOf(false) }
+    var selectedBackup by remember { mutableStateOf<BackupEntry?>(null) }
+    var deletePick by remember { mutableStateOf<BackupEntry?>(null) }
+    var deletingBackup by remember { mutableStateOf(false) }
     var reloadKey by remember { mutableStateOf(0) }
     val configured = s.davUrl.isNotBlank()
 
@@ -317,7 +346,6 @@ fun CloudBackupScreen() {
     Column(Modifier.fillMaxSize().background(Kongye.Band)) {
         TopBar(title = "云端备份", onBack = { AppState.pop() }, divider = true)
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
-            Hint("通过 WebDAV 把备份存到网盘（坚果云、Nextcloud、群晖等），换手机或重装后可以从云端恢复。")
 
             SettingsTitle("WebDAV 服务器")
             SettingsGroup {
@@ -327,7 +355,7 @@ fun CloudBackupScreen() {
                 SwitchRow("允许局域网 HTTP（明文）", s.allowInsecureDav) { on -> Settings.updateBackup { it.copy(allowInsecureDav = on) } }
                 SettingRow("备份目录", s.davDir.ifBlank { "（根目录）" }) { editing = DavField.DIR }
                 SettingRow(
-                    "测试连接", davTest ?: "", last = true,
+                    "测试连接", davTest ?: "", last = true, showChevron = false,
                     valueColor = when {
                         davTest?.startsWith("连接成功") == true -> Kongye.Primary
                         davTest?.startsWith("连接失败") == true -> Kongye.Danger
@@ -340,7 +368,6 @@ fun CloudBackupScreen() {
                     }
                 }
             }
-            Hint("坚果云：服务器地址填 https://dav.jianguoyun.com/dav/ ，密码使用网页版“账户信息 → 安全选项”里生成的应用密码。")
 
             SettingsTitle("自动备份")
             SettingsGroup {
@@ -373,20 +400,39 @@ fun CloudBackupScreen() {
             SettingsTitle("备份恢复")
             SettingsGroup {
                 if (configured) {
-                    BackupRows(backups, listError, "云端还没有备份") { restoring = it }
-                    SettingRow("刷新列表", last = true) { reloadKey++ }
+                    SettingRow("刷新列表", showChevron = false) { reloadKey++ }
+                    BackupRows(backups, listError, "云端还没有备份") { selectedBackup = it }
                 } else {
                     SettingRow("填写服务器后可以查看云端的备份", last = true) { editing = DavField.URL }
                 }
             }
-            Hint("恢复时，备份里的文档会覆盖同一篇文档的当前内容；备份之后新建的文档会保留。到期清理只删除自动备份，手动备份不会被删除。")
             Spacer(Modifier.navigationBarsPadding().height(24.dp))
         }
     }
 
+    selectedBackup?.let { entry ->
+        ActionSheet(onDismiss = { selectedBackup = null }, actions = listOf(
+            SheetAction(KongyeIcons.Restore, "恢复此备份") { restoring = entry },
+            SheetAction(KongyeIcons.Trash, "删除备份", danger = true) { deletePick = entry },
+        ))
+    }
+    deletePick?.let { entry ->
+        ConfirmDialog(title = "删除云端备份", message = "将从网盘的备份目录删除这个文件，删除后无法再用它恢复文档。此操作不能在应用中撤销。当前文档和其他备份不会被删除。", confirmText = "删除", danger = true,
+            onDismiss = { if (!deletingBackup) deletePick = null }) {
+            if (!deletingBackup) {
+                deletingBackup = true
+                scope.launch {
+                    runCatching { AutoBackup.deleteDav(entry, s) }
+                        .onSuccess { Toast.done("云端备份文件已删除"); reloadKey++; deletePick = null }
+                        .onFailure { Toast.show("删除失败：" + AutoBackup.describe(it)) }
+                    deletingBackup = false
+                }
+            }
+        }
+    }
     when (choice) {
         "interval" -> ChoiceSheet("备份频率", intervals, s.davIntervalHours, { choice = null }) { v -> Settings.updateBackup { it.copy(davIntervalHours = v) } }
-        "keep" -> ChoiceSheet("旧备份保留多久", keeps, s.davKeepDays, { choice = null }) { v -> Settings.updateBackup { it.copy(davKeepDays = v) } }
+        "keep" -> ChoiceSheet("旧备份", keeps, s.davKeepDays, { choice = null }) { v -> Settings.updateBackup { it.copy(davKeepDays = v) } }
     }
     restoring?.let { e ->
         RestoreConfirm(e, onDismiss = { restoring = null }) {

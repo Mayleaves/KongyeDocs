@@ -135,7 +135,7 @@ data class UserTemplate(
     val createdAt: Long = System.currentTimeMillis(),
 )
 
-/** HISTORY：编辑过程中自动记录的历史；LOCAL：手动保存或恢复、全部替换之前自动留的备份 */
+/** HISTORY 仅兼容旧数据；LOCAL 保留 v2.5 的手动、定时自动及恢复前版本。 */
 @Serializable
 enum class VersionKind { HISTORY, LOCAL }
 

@@ -22,8 +22,8 @@ sealed interface Screen {
     /** 文档生成长图后的预览，可保存或分享 */
     data class ImagePreview(val docId: String) : Screen
 
-    /** 查看历史 / 查看本地版本 */
-    data class Versions(val docId: String, val kind: VersionKind) : Screen
+    /** 查看本地版本 */
+    data class Versions(val docId: String) : Screen
     data class VersionPreview(val docId: String, val versionId: String) : Screen
 
     /** 我的 → 下载记录，以及单条记录的查看页 */
@@ -39,7 +39,7 @@ sealed interface Screen {
 }
 
 /** 显示用的版本号（与 build.gradle 的 versionName 一致） */
-const val APP_VERSION = "2.5"
+const val APP_VERSION = "2.9"
 
 /** 底部导航：首页 / 文件 / 我的 */
 enum class Tab { HOME, FILES, ME }
@@ -148,7 +148,7 @@ object AppState {
 
     fun pop(): Boolean {
         if (stack.size <= 1) return false
-        if (current is Screen.Editor && com.kongye.docs.ui.editor.EditorSession.current?.save() == false) return false
+        if (current is Screen.Editor && !com.kongye.docs.ui.editor.EditorSession.closeDocument((current as Screen.Editor).docId)) return false
         forward = false
         selection = null
         stack.removeAt(stack.lastIndex)
@@ -157,7 +157,7 @@ object AppState {
 
     /** 返回到主页并切换标签 */
     fun goHome(tab: Tab) {
-        if (current is Screen.Editor && com.kongye.docs.ui.editor.EditorSession.current?.save() == false) return
+        if (stack.filterIsInstance<Screen.Editor>().any { !com.kongye.docs.ui.editor.EditorSession.closeDocument(it.docId) }) return
         forward = false
         selection = null
         while (stack.size > 1) stack.removeAt(stack.lastIndex)

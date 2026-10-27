@@ -61,7 +61,7 @@ class SheetAction(
 fun BottomSheet(
     onDismiss: () -> Unit,
     /** false：内容里上下滑动只滚动内容，不会把面板拖下去关掉（点遮罩或返回键仍可关闭） */
-    dragToDismiss: Boolean = true,
+    dragToDismiss: Boolean = false,
     content: @Composable ColumnScope.(dismiss: (then: () -> Unit) -> Unit) -> Unit,
 ) {
     val state = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -142,7 +142,7 @@ class CreateOption(val label: String, val icon: ImageVector, val onClick: () -> 
 @Composable
 fun CreateSheet(onDismiss: () -> Unit, options: List<CreateOption>) {
     BottomSheet(onDismiss) { dismiss ->
-        Text("新建", Modifier.padding(start = 20.dp, top = 18.dp, bottom = 10.dp), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        Text("新建", Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 10.dp), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         Row(Modifier.fillMaxWidth().padding(horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
             options.forEach { o ->
                 Column(
@@ -186,7 +186,7 @@ fun FolderPickerSheet(moving: List<Item>, onDismiss: () -> Unit, onPick: (String
     // 都在同一个文件夹时默认选中它，否则默认桌面
     var selected by remember { mutableStateOf(moving.map { it.parentId }.distinct().singleOrNull()) }
     BottomSheet(onDismiss) { dismiss ->
-        Text(if (moving.size > 1) "移动 ${moving.size} 项到" else "移动到", Modifier.padding(start = 20.dp, top = 18.dp, bottom = 8.dp), fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+        Text(if (moving.size > 1) "移动 ${moving.size} 项到" else "移动到", Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 8.dp), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
             FolderPickRow("我的桌面", 0, selected == null, root = true) { selected = null }
             rows.forEach { (f, depth) -> FolderPickRow(f.displayTitle, depth, selected == f.id) { selected = f.id } }

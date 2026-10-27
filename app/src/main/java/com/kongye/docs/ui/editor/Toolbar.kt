@@ -79,6 +79,8 @@ fun EditorToolbar(
     onTableMenu: () -> Unit,
     onHideKeyboard: () -> Unit,
     onCustomize: () -> Unit,
+    onUndo: () -> Unit = { editor.undo() },
+    onRedo: () -> Unit = { editor.redo() },
 ) {
     val b = editor.focused
     val order by Repository.toolbar.collectAsState()
@@ -94,8 +96,8 @@ fun EditorToolbar(
                         Tool.STYLE -> TbBtn(tool.icon, active = panel == EdPanel.STYLE, enabled = b != null) { onPanel(EdPanel.STYLE) }
                         Tool.PARAGRAPH -> TbBtn(tool.icon, active = panel == EdPanel.PARAGRAPH, enabled = b != null) { onPanel(EdPanel.PARAGRAPH) }
                         Tool.INSERT -> TbBtn(tool.icon, active = panel == EdPanel.INSERT) { onPanel(EdPanel.INSERT) }
-                        Tool.UNDO -> TbBtn(tool.icon, enabled = editor.canUndo) { editor.undo() }
-                        Tool.REDO -> TbBtn(tool.icon, enabled = editor.canRedo) { editor.redo() }
+                        Tool.UNDO -> TbBtn(tool.icon, enabled = editor.canUndo) { onUndo() }
+                        Tool.REDO -> TbBtn(tool.icon, enabled = editor.canRedo) { onRedo() }
                         Tool.COMMENT -> TbBtn(tool.icon, enabled = b != null, onClick = onComment)
                     }
                 }

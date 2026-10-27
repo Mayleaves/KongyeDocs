@@ -160,6 +160,10 @@ private object CatMemory {
  */
 @Composable
 fun LineCat(part: DayPart, messages: () -> List<String>, modifier: Modifier = Modifier) {
+    val resources = androidx.compose.ui.platform.LocalContext.current.resources
+    val bowl = remember(resources) { loadCatSvg(resources,com.kongye.docs.R.raw.cat_bowl) }
+    val yarn = remember(resources) { loadCatSvg(resources,com.kongye.docs.R.raw.cat_yarn) }
+    val steam = remember(resources) { loadCatSvg(resources,com.kongye.docs.R.raw.cat_steam) }
     val haptic = LocalHapticFeedback.current
     // 动画时钟（秒），只在绘制时读取，不会引起重组
     val clock = produceState(0f) {
@@ -243,7 +247,7 @@ fun LineCat(part: DayPart, messages: () -> List<String>, modifier: Modifier = Mo
             withTransform({
                 scale(k, k, pivot = Offset.Zero)
                 translate(-X0, -Y0)
-            }) { drawCat(part, a, p, t, ink, bg, pink) }
+            }) { drawCat(part, a, p, t, ink, bg, pink, bowl, yarn, steam) }
         }
         // 小猫说的话：气泡贴在它脑袋左边，尖角指向它，不占布局
         Box(
@@ -305,7 +309,7 @@ private fun CatBubble(text: String) {
 }
 
 /** 画一帧小猫（设计稿坐标）。p 是当前小动作的进度（0～1），t 是动画时钟（秒） */
-private fun DrawScope.drawCat(part: DayPart, act: CatAct?, p: Float, t: Float, ink: Color, bg: Color, pink: Color) {
+private fun DrawScope.drawCat(part: DayPart, act: CatAct?, p: Float, t: Float, ink: Color, bg: Color, pink: Color, bowl: Path, yarn: Path, steam: Path) {
     val wave = sin(p * PI.toFloat())
     fun line(w: Float) = Stroke(w, cap = StrokeCap.Round, join = StrokeJoin.Round)
 
@@ -319,6 +323,16 @@ private fun DrawScope.drawCat(part: DayPart, act: CatAct?, p: Float, t: Float, i
                 }
             }
         }
+        DayPart.NOON -> {
+            drawPath(bowl,ink,style=line(2.1f))
+            repeat(3) { i ->
+                val phase = (t*0.38f+i/3f)%1f
+                val y = 87f-phase*20f
+                val x = 12f+i*6f+sin(t*2f+i)*1.3f
+                translate(x,y) { drawPath(steam,ink.copy(alpha=sin(phase*PI.toFloat())*0.75f),style=line(2.1f)) }
+            }
+        }
+        DayPart.AFTERNOON -> drawPath(yarn,ink,style=line(2.1f))
         DayPart.EVENING, DayPart.NIGHT -> {
             drawPath(CatPaths.moon, ink, style = line(2f))
             drawPath(CatPaths.star, ink.copy(alpha = 0.35f + 0.45f * (0.5f + 0.5f * sin(t * 2.4f))), style = line(1.6f))
@@ -533,4 +547,20 @@ fun catMessages(part: DayPart, words: Int, days: Int): List<String> {
         "偷偷告诉你：「关于」里的叶子也能点",
         "愿每一片叶子，都有字可落",
     )
+}
+
+/** These small SVG resources share the cat's current ink color in both themes. */
+internal fun loadCatSvg(resources: android.content.res.Resources, id: Int): Path {
+    val parser=android.util.Xml.newPullParser()
+    val path=Path()
+    resources.openRawResource(id).use { input ->
+        parser.setInput(input,"UTF-8")
+        while(parser.eventType!=org.xmlpull.v1.XmlPullParser.END_DOCUMENT) {
+            if(parser.eventType==org.xmlpull.v1.XmlPullParser.START_TAG && parser.name=="path") {
+                parser.getAttributeValue(null,"d")?.let { path.addPath(PathParser().parsePathString(it).toPath()) }
+            }
+            parser.next()
+        }
+    }
+    return path
 }

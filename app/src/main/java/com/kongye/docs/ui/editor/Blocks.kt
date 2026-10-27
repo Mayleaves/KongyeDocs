@@ -57,6 +57,7 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
@@ -74,6 +75,9 @@ import com.kongye.docs.data.Repository
 import com.kongye.docs.ui.components.KongyeIcons
 import com.kongye.docs.ui.theme.Kongye
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.withContext
@@ -122,6 +126,7 @@ fun BlockView(
     onImageTap: (BlockState) -> Unit,
     onDividerTap: (BlockState) -> Unit,
 ) {
+    Box(Modifier.background(if(editor.selection.active && editor.selection.containsBlock(b.id) && !b.type.isText) Kongye.Primary.copy(alpha=0.15f) else Color.Transparent)) {
     when (b.type) {
         BlockType.DIVIDER -> Box(
             Modifier.fillMaxWidth().height(30.dp).clickable { onDividerTap(b) },
@@ -130,6 +135,7 @@ fun BlockView(
         BlockType.IMAGE -> ImageBlock(b) { onImageTap(b) }
         BlockType.TABLE -> TableBlock(b, editor)
         else -> TextBlock(b, index, editor)
+    }
     }
 }
 
@@ -142,6 +148,7 @@ private fun TextBlock(b: BlockState, index: Int, editor: EditorState) {
         // 段落首行缩进两个字
         textIndent = if (b.firstIndent && type.canFirstIndent) TextIndent(firstLine = (base.fontSize.value * 2).sp) else null,
     )
+    val selectionBackground=androidx.compose.foundation.text.selection.LocalTextSelectionColors.current.backgroundColor
     val spans = b.spans
     val done = type == BlockType.TODO && b.checked
     val marks = if (editor.findMode) {
@@ -151,8 +158,14 @@ private fun TextBlock(b: BlockState, index: Int, editor: EditorState) {
     val commentSpans = spans.filter { it.style == InlineStyle.COMMENT && editor.thread(it.url) != null }
     val focusedComment = editor.commentView?.threadId
     val draft = editor.commentDraft?.takeIf { it.blockId == b.id }
-    val transformation = remember(spans, done, marks.map { Triple(it.start, it.end, it.current) }) {
-        VisualTransformation { t -> TransformedText(buildStyledText(t.text, spans, done, marks), OffsetMapping.Identity) }
+    val transformation = remember(spans, done, marks.map { Triple(it.start, it.end, it.current) }, editor.selection.range, selectionBackground) {
+        VisualTransformation { t ->
+            val text=androidx.compose.ui.text.buildAnnotatedString {
+                append(buildStyledText(t.text,spans,done,marks))
+                editor.selection.localRange(b.id)?.let { if(!it.collapsed) addStyle(androidx.compose.ui.text.SpanStyle(background=selectionBackground),it.min,it.max) }
+            }
+            TransformedText(text,OffsetMapping.Identity)
+        }
     }
     var layout by remember { mutableStateOf<TextLayoutResult?>(null) }
     val density = LocalDensity.current
@@ -186,10 +199,12 @@ private fun TextBlock(b: BlockState, index: Int, editor: EditorState) {
             BlockType.QUOTE -> Spacer(Modifier.width(14.dp))
             else -> {}
         }
+        val inputEpoch=editor.inputEpoch
         val field: @Composable (Modifier) -> Unit = { mod ->
+            DocumentSelectionDrawing {
             BasicTextField(
                 value = b.value,
-                onValueChange = { editor.onValueChange(b, it) },
+                onValueChange = { if(inputEpoch==editor.inputEpoch) editor.onValueChange(b, it) },
                 readOnly = editor.findMode,
                 textStyle = style,
                 cursorBrush = SolidColor(Kongye.Primary),
@@ -198,7 +213,7 @@ private fun TextBlock(b: BlockState, index: Int, editor: EditorState) {
                     editor.layouts[b.id] = it
                     layout = it
                 },
-                modifier = mod
+                modifier = mod.documentTextMenu(editor).onGloballyPositioned { editor.selection.register(b.id,it) }
                     .drawBehind {
                         val l = layout ?: return@drawBehind
                         commentSpans.forEach { r ->
@@ -227,12 +242,13 @@ private fun TextBlock(b: BlockState, index: Int, editor: EditorState) {
                     }
                 },
             )
-        }
-        if (type == BlockType.CODE) {
-            Box(Modifier.weight(1f).clip(RoundedCornerShape(6.dp)).background(Kongye.Bg2).padding(horizontal = 12.dp, vertical = 10.dp)) {
-                field(Modifier.fillMaxWidth())
             }
-        } else field(Modifier.weight(1f))
+        }
+        Box(Modifier.weight(1f).then(if(type==BlockType.CODE)
+            Modifier.clip(RoundedCornerShape(6.dp)).background(Kongye.Bg2).padding(horizontal=12.dp,vertical=10.dp)
+            else Modifier)) {
+            field(Modifier.fillMaxWidth())
+        }
     }
     // 评论角标：画在这段右侧的页边上，对齐评论开始的那一行；同一条评论跨段时只画在第一段
     val badgeThreads = commentSpans.map { it.url }.distinct().filter { editor.firstAnchor[it] == b.id }
@@ -260,7 +276,7 @@ private fun charAt(l: TextLayoutResult, p: Offset): Int? {
 }
 
 /** 双击要选中的那一个字：取点中位置最近的字，按字形簇（emoji 等）扩展；minOffset 之前的哨兵不选 */
-private fun charRangeAt(l: TextLayoutResult, p: Offset, minOffset: Int): Pair<Int, Int>? {
+internal fun charRangeAt(l: TextLayoutResult, p: Offset, minOffset: Int): Pair<Int, Int>? {
     val text = l.layoutInput.text.text
     val len = text.length
     if (len <= minOffset) return null
@@ -271,11 +287,7 @@ private fun charRangeAt(l: TextLayoutResult, p: Offset, minOffset: Int): Pair<In
     return max(minOffset, start) to end
 }
 
-/**
- * 输入框上的手势，在 Initial 阶段旁观，不影响输入框自己的点击、长按和拖动：
- * - 双击：记下点中的那个字，输入框随后“选中整个词”（中文常常是一整句）时改成只选这一个字；
- * - intercept 返回非空时，吃掉这次点击并执行它（例如阅读状态下点开评论）。
- */
+/** Text taps and long presses feed one document-wide selection; scrolling stays with the viewport. */
 internal fun Modifier.textGestures(
     editor: EditorState,
     key: String,
@@ -283,28 +295,57 @@ internal fun Modifier.textGestures(
     layout: () -> TextLayoutResult?,
     intercept: (Offset) -> (() -> Unit)? = { null },
 ): Modifier = pointerInput(key) {
-    var lastUp = 0L
-    var lastPos = Offset.Zero
-    awaitEachGesture {
-        val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
-        val action = intercept(down.position)
-        if (action != null) {
-            down.consume()
-            val up = waitForUpOrCancellation(PointerEventPass.Initial)
-            if (up != null) {
-                up.consume()
-                action()
+    coroutineScope {
+        val selectionScope=this
+        var lastUp=0L
+        var lastPos=Offset.Zero
+        awaitEachGesture {
+            val down=awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Initial)
+            if(down.isConsumed) return@awaitEachGesture
+            editor.cancelCharSelect()
+            editor.clearArticleSelection()
+            val action=intercept(down.position)
+            if(action!=null) {
+                down.consume()
+                val up=waitForUpOrCancellation(PointerEventPass.Initial)
+                if(up!=null) { up.consume(); action() }
+                lastUp=0L
+                return@awaitEachGesture
             }
-            return@awaitEachGesture
-        }
-        val second = down.uptimeMillis - lastUp < viewConfiguration.doubleTapTimeoutMillis &&
-            (down.position - lastPos).getDistance() < viewConfiguration.touchSlop * 4
-        val l = layout()
-        if (second && l != null) charRangeAt(l, down.position, minOffset)?.let { (s, e) -> editor.armCharSelect(key, s, e) }
-        val up = waitForUpOrCancellation(PointerEventPass.Initial)
-        if (up != null) {
-            lastUp = up.uptimeMillis
-            lastPos = up.position
+            val second=lastUp>0L && down.uptimeMillis-lastUp<=viewConfiguration.doubleTapTimeoutMillis &&
+                (down.position-lastPos).getDistance()<=viewConfiguration.touchSlop*3f
+            val range=layout()?.let { charRangeAt(it,down.position,minOffset) }
+            var epoch: Long?=null
+            var moved=false
+            var upTime=0L
+            suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.observeUntilUp() {
+                while(true) {
+                    val event=awaitPointerEvent(PointerEventPass.Initial)
+                    val change=event.changes.firstOrNull { it.id==down.id } ?: return
+                    if(event.changes.size>1 || (change.position-down.position).getDistance()>viewConfiguration.touchSlop) {
+                        moved=true
+                        if(epoch!=null) { editor.cancelCharSelect(); epoch=null }
+                    }
+                    // Do not cancel merely because BasicTextField consumed this event.
+                    if(!change.pressed) { upTime=change.uptimeMillis; return }
+                }
+            }
+            if(second && range!=null) epoch=editor.armCharSelect(key,range.first,range.second)
+            val released=withTimeoutOrNull((viewConfiguration.longPressTimeoutMillis-50).coerceAtLeast(1)) {
+                observeUntilUp(); true
+            } ?: false
+            if(!released) {
+                if(!moved && range!=null && epoch==null) epoch=editor.armCharSelect(key,range.first,range.second)
+                observeUntilUp()
+            }
+            val token=epoch
+            if(!moved && range!=null && token!=null) selectionScope.launch {
+                // Apply after the field's own release/cursor update, including devices that miss native double taps.
+                withFrameNanos { }
+                editor.completeCharSelect(key,range.first,range.second,token)
+            }
+            if(!moved && !second && released) { lastUp=upTime; lastPos=down.position }
+            else lastUp=0L
         }
     }
 }
@@ -364,6 +405,7 @@ private fun ImageBlock(b: BlockState, onTap: () -> Unit) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun TableBlock(b: BlockState, editor: EditorState) {
+    val inputEpoch=editor.inputEpoch
     val rows = b.table
     val cols = rows.maxOfOrNull { it.size } ?: 0
     if (cols == 0) return
@@ -394,7 +436,7 @@ private fun TableBlock(b: BlockState, editor: EditorState) {
                             } else emptyList()
                             BasicTextField(
                                 value = row.getOrElse(c) { "" },
-                                onValueChange = { editor.setCell(b, r, c, it) },
+                                onValueChange = { if(inputEpoch==editor.inputEpoch) editor.setCell(b, r, c, it) },
                                 readOnly = editor.findMode,
                                 visualTransformation = if (cellMarks.isEmpty()) VisualTransformation.None else VisualTransformation { t ->
                                     TransformedText(
@@ -407,7 +449,7 @@ private fun TableBlock(b: BlockState, editor: EditorState) {
                                     fontWeight = if (r == 0) FontWeight.Medium else FontWeight.Normal,
                                 ),
                                 cursorBrush = SolidColor(Kongye.Primary),
-                                modifier = Modifier.width(colWidth).fillMaxHeight()
+                                modifier = Modifier.width(colWidth).fillMaxHeight().documentTextMenu(editor)
                                     .bringIntoViewRequester(requester)
                                     .onSizeChanged { cellSize[0] = it.width.toFloat(); cellSize[1] = it.height.toFloat() }
                                     .background(if (r == 0) Kongye.Bg2 else Kongye.Surface)
@@ -441,6 +483,7 @@ private fun TableBlock(b: BlockState, editor: EditorState) {
                                     .padding(horizontal = 8.dp, vertical = 8.dp)
                                     .onFocusChanged {
                                         if (it.isFocused) {
+                                            editor.clearArticleSelection()
                                             editor.focusedCell = ref
                                             editor.focusedId = null
                                         }

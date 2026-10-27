@@ -1,5 +1,8 @@
 package com.kongye.docs.ui.editor
 
+import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.layout.layout
+import kotlin.math.roundToInt
 import android.content.Intent
 import com.kongye.docs.render.DocRenderer
 import androidx.activity.compose.BackHandler
@@ -54,6 +57,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -102,11 +106,23 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import androidx.compose.ui.draw.drawBehind
 
 /** 当前打开的编辑器，供 Activity 进入后台时立即保存 */
 object EditorSession {
     var current: EditorState? = null
     var keyboardHeight by mutableStateOf(0.dp)
+    private val documents=mutableMapOf<String,EditorState>()
+    fun obtain(id: String, isNew: Boolean)=documents.getOrPut(id) { EditorState(id,isNew) }
+    fun closeDocument(id: String): Boolean {
+        val editor=documents[id] ?: return true
+        if(editor.isNew && editor.isEmptyDoc()) Repository.destroy(id)
+        else if(!editor.closeDocument()) return false
+        documents.remove(id)
+        return true
+    }
+    fun reload(id: String) { documents[id]?.reloadSavedContent() }
+    fun snapshot(id: String) = documents[id]?.let { it.title.text to it.content() }
 }
 
 private sealed interface EdSheet {
@@ -118,7 +134,7 @@ private sealed interface EdSheet {
     data object Toolbar : EdSheet
 }
 
-private enum class EdDialog { LINK, INFO, DELETE, TEMPLATE }
+private enum class EdDialog { LINK, DELETE, TEMPLATE }
 
 private val doneBlue = Color(0xFF4A90E2)
 
@@ -129,16 +145,27 @@ val TITLE_LINE = 34.sp
 @OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun EditorScreen(docId: String, isNew: Boolean) {
-    val editor = remember(docId) { EditorState(docId, isNew) }
+    val editor=remember(docId) { EditorSession.obtain(docId,isNew) }
+    DocumentInput(editor) { EditorScreenContent(docId,isNew) }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun EditorScreenContent(docId: String, isNew: Boolean) {
+    val selectionBackground=androidx.compose.foundation.text.selection.LocalTextSelectionColors.current.backgroundColor
+    val titleFocus = remember { androidx.compose.ui.focus.FocusRequester() }
+    val editor = remember(docId) { EditorSession.obtain(docId, isNew) }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current
     val focusManager = LocalFocusManager.current
     val scroll = rememberScrollState()
+    val settings by com.kongye.docs.data.Settings.state.collectAsState()
     val items by Repository.items.collectAsState()
     val item = items.firstOrNull { it.id == docId }
     var panel by remember { mutableStateOf<EdPanel?>(null) }
     var tocOpen by remember { mutableStateOf(false) }
+    var infoOpen by remember { mutableStateOf(false) }
     var tocActive by remember { mutableStateOf<String?>(null) }
     var titleLayout by remember { mutableStateOf<TextLayoutResult?>(null) }
     var cameraPath by rememberSaveable { mutableStateOf<String?>(null) }
@@ -149,7 +176,7 @@ fun EditorScreen(docId: String, isNew: Boolean) {
     val imeVisible = WindowInsets.isImeVisible
     val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val toolbarVisible = !editor.findMode && (editor.focusedId != null || editor.focusedCell != null)
+    val toolbarVisible = !editor.findMode && (editor.selection.active || editor.focusedId != null || editor.focusedCell != null)
     val editing = toolbarVisible || titleFocused
     val panelHeight = EditorSession.keyboardHeight.takeIf { it > 160.dp } ?: 300.dp
     val docTitle = editor.title.text.ifBlank { "无标题" }
@@ -175,13 +202,11 @@ fun EditorScreen(docId: String, isNew: Boolean) {
     DisposableEffect(editor) {
         EditorSession.current = editor
         onDispose {
-            EditorSession.current = null
+            if(EditorSession.current === editor) EditorSession.current = null
             // 只有真正关闭文档（而不是跳到预览、历史等页面）时，才删除没写任何内容的新文档
             val stillOpen = AppState.stack.any { it is Screen.Editor && it.docId == docId }
-            if (!stillOpen && editor.isNew && editor.isEmptyDoc()) Repository.destroy(docId)
-            else {
-                if (editor.save() && editor.changedInSession) runCatching { editor.recordHistory() }
-            }
+            if(!stillOpen) EditorSession.closeDocument(docId)
+            else editor.save()
         }
     }
 
@@ -195,7 +220,17 @@ fun EditorScreen(docId: String, isNew: Boolean) {
             runCatching { b.focus.requestFocus() }
             editor.focusedId = b.id
         }
+        if (pf.blockId == TITLE_KEY) {
+            editor.title=editor.title.copy(selection=TextRange(pf.pos.coerceIn(0,editor.title.text.length)))
+            withFrameNanos { }
+            runCatching { titleFocus.requestFocus() }
+        }
+        if(pf.showKeyboard) keyboard?.show()
         editor.pendingFocus = null
+    }
+
+    LaunchedEffect(editor.selection.active,editor.selection.fromKeyboard) {
+        if (editor.selection.active && !editor.selection.fromKeyboard) { focusManager.clearFocus(); keyboard?.hide(); titleFocused=false; panel=null }
     }
 
     // 新建的空白文档直接聚焦正文，方便立即输入
@@ -225,6 +260,7 @@ fun EditorScreen(docId: String, isNew: Boolean) {
         scroll.animateScrollTo((top + lineTop - scroll.viewportSize * 0.3f).toInt().coerceAtLeast(0))
     }
 
+    BackHandler(enabled = infoOpen || tocOpen) { infoOpen = false; tocOpen = false }
     BackHandler(enabled = panel != null) { panel = null }
     BackHandler(enabled = editor.findMode) { editor.closeFind() }
     BackHandler(enabled = editor.commentView != null) {
@@ -242,6 +278,7 @@ fun EditorScreen(docId: String, isNew: Boolean) {
         panel = null
         // 结束编辑时，还没发出去的评论一并放弃
         editor.commentDraft = null
+        editor.clearArticleSelection()
         focusManager.clearFocus()
         editor.focusedId = null
         editor.focusedCell = null
@@ -251,7 +288,6 @@ fun EditorScreen(docId: String, isNew: Boolean) {
     /** 离开编辑器去别的页面前先保存，让新页面读到最新内容 */
     fun leaveTo(screen: Screen) {
         if (!editor.save()) return
-        runCatching { editor.recordHistory() }.onFailure { Toast.show("版本保存失败：${it.message}"); return }
         AppState.push(screen)
     }
 
@@ -295,6 +331,7 @@ fun EditorScreen(docId: String, isNew: Boolean) {
     LaunchedEffect(editor.commentView) {
         val v = editor.commentView ?: return@LaunchedEffect
         finishEditing()
+        infoOpen = false; tocOpen = false
         val blockId = v.threadId?.let { editor.firstAnchor[it] } ?: return@LaunchedEffect
         val top = blockTops[blockId] ?: return@LaunchedEffect
         delay(120)
@@ -321,7 +358,7 @@ fun EditorScreen(docId: String, isNew: Boolean) {
                 Box(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 6.dp)) {
                     if (editing) IconBtn(KongyeIcons.Check, ::finishEditing, Modifier.align(Alignment.CenterStart), tint = doneBlue, iconSize = 26.dp, description = "完成")
                     else IconBtn(KongyeIcons.Back, { AppState.pop() }, Modifier.align(Alignment.CenterStart), tint = Kongye.Ink2, description = "返回")
-                    Text(
+                    if(settings.autoLocalVersion) Text(
                         if (editor.isSaved) "文档将自动保存" else "正在保存…", Modifier.align(Alignment.Center),
                         fontSize = 12.sp, color = Kongye.Sub,
                     )
@@ -343,26 +380,33 @@ fun EditorScreen(docId: String, isNew: Boolean) {
 
         // ---------- 正文 ----------
         // 目录打开时，点一下正文（上方空白处）收起目录；这次点击不会进入编辑，上下滑动照常滚动
-        Box(Modifier.weight(1f).then(if (tocOpen) Modifier.pointerInput(Unit) {
+        Box(Modifier.weight(1f).documentSelectionInput(editor).then(if (tocOpen || infoOpen) Modifier.pointerInput(Unit) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false, pass = PointerEventPass.Initial)
                 val up = waitForUpOrCancellation(PointerEventPass.Initial)
                 if (up != null && (up.position - down.position).getDistance() < viewConfiguration.touchSlop) {
                     up.consume()
                     tocOpen = false
+                    infoOpen = false
                 }
             }
         } else Modifier)) {
             Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = DocRenderer.SIDE_DP.dp)) {
                 Spacer(Modifier.height(22.dp))
+                key(editor.inputGeneration) {
+                val titleGeneration=editor.inputGeneration
+                val titleEpoch=editor.inputEpoch
+                DocumentSelectionDrawing {
                 BasicTextField(
                     value = editor.title,
-                    onValueChange = editor::onTitleChange,
+                    onValueChange = { if(titleGeneration==editor.inputGeneration && titleEpoch==editor.inputEpoch) editor.onTitleChange(it) },
                     readOnly = editor.findMode,
                     textStyle = TextStyle(fontSize = TITLE_SIZE, lineHeight = TITLE_LINE, fontWeight = FontWeight.Bold, color = Kongye.Ink),
                     cursorBrush = SolidColor(Kongye.Primary),
-                    onTextLayout = { titleLayout = it },
-                    modifier = Modifier.fillMaxWidth().textGestures(editor, TITLE_KEY, minOffset = 0, layout = { titleLayout }).onFocusChanged {
+                    onTextLayout = { titleLayout = it; editor.layouts[TITLE_KEY]=it },
+                    modifier = Modifier.fillMaxWidth().documentTextMenu(editor).focusRequester(titleFocus).onGloballyPositioned { editor.selection.register(TITLE_KEY,it) }.drawBehind {
+                        editor.selection.localRange(TITLE_KEY)?.let { range -> titleLayout?.let { if(!range.collapsed) drawPath(it.getPathForRange(range.min,range.max),selectionBackground) } }
+                    }.textGestures(editor, TITLE_KEY, minOffset = 0, layout = { titleLayout }).onFocusChanged {
                         titleFocused = it.isFocused
                         if (it.isFocused) {
                             editor.focusedId = null
@@ -377,11 +421,13 @@ fun EditorScreen(docId: String, isNew: Boolean) {
                         }
                     },
                 )
+                }
+                }
                 Spacer(Modifier.height(18.dp))
                 HLine(color = Kongye.Divider)
                 Spacer(Modifier.height(14.dp))
                 editor.blocks.forEachIndexed { i, b ->
-                    key(b.id) {
+                    key(b.id,b) {
                         Box(Modifier.onGloballyPositioned { blockTops[b.id] = it.positionInParent().y.toInt() }) {
                             BlockView(b, i, editor, onImageTap = { sheet = EdSheet.Image(it) }, onDividerTap = { sheet = EdSheet.Divider(it) })
                         }
@@ -392,21 +438,39 @@ fun EditorScreen(docId: String, isNew: Boolean) {
                         .clickable(remember { MutableInteractionSource() }, indication = null) { if (!editor.findMode) editor.focusEnd() },
                 )
             }
+            SelectionHandles(editor,scroll)
+            SelectionActions(editor)
             if (editor.findMode) FindNavigator(editor, Modifier.align(Alignment.BottomCenter).padding(bottom = 18.dp))
         }
 
         // ---------- 底部：查找替换栏 / 评论输入 / 评论面板 / 工具栏及其二级面板 ----------
         if (editor.findMode) {
-            FindBottomBar(editor)
+            SoftPanel { FindBottomBar(editor) }
         } else if (editor.commentDraft != null) {
-            CommentComposer(editor) { finishEditing() }
+            SoftPanel { CommentComposer(editor) { finishEditing() } }
         } else if (editor.commentView != null) {
-            CommentPanel(editor, if (imeVisible) commentPanelSmall else commentPanelLarge)
+            SoftPanel { CommentPanel(editor, if (imeVisible) commentPanelSmall else commentPanelLarge) }
+        } else if (infoOpen) {
+            SoftPanel {
+            val content = editor.content()
+            val body = content.bodyText()
+            InfoPanel(commentPanelLarge, listOf(
+                "标题" to docTitle,
+                "位置" to (item?.let(::locationOf) ?: "我的桌面"),
+                "创建时间" to formatFullTime(item?.createdAt ?: 0),
+                "最近修改" to formatFullTime(item?.updatedAt ?: 0),
+                "总字数" to countWords(editor.title.text + "\n" + body).toString(),
+                "字符数" to body.count { !it.isWhitespace() }.toString(),
+                "图片 / 表格" to "${content.blocks.count { it.type == BlockType.IMAGE }} / ${content.blocks.count { it.type == BlockType.TABLE }}",
+            )) { infoOpen = false }
+            }
         } else if (tocOpen) {
+            SoftPanel {
             TocPanel(editor, commentPanelLarge, tocActive, onClose = { tocOpen = false }) { h ->
                 // 选中的标题变色，正文跳到这一节；目录保持打开
                 tocActive = h.id
                 scope.launch { scroll.animateScrollTo(((blockTops[h.id] ?: 0) - 24 * density.density).toInt().coerceAtLeast(0)) }
+            }
             }
         } else if (toolbarVisible) {
             EditorToolbar(
@@ -422,6 +486,8 @@ fun EditorScreen(docId: String, isNew: Boolean) {
                         keyboard?.hide()
                     }
                 },
+                onUndo = { editor.undo(imeVisible) },
+                onRedo = { editor.redo(imeVisible) },
                 onComment = {
                     val why = editor.startComment()
                     if (why != null) Toast.show(why) else panel = null
@@ -433,29 +499,35 @@ fun EditorScreen(docId: String, isNew: Boolean) {
                     sheet = EdSheet.Toolbar
                 },
             )
-            if (!imeVisible) when (panel) {
-                EdPanel.STYLE -> StylePanel(editor, panelHeight)
-                EdPanel.PARAGRAPH -> ParagraphPanel(editor, panelHeight)
-                EdPanel.INSERT -> InsertPanel(
-                    editor, panelHeight,
-                    onImage = {
-                        panel = null
-                        pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                    },
-                    onCamera = {
-                        panel = null
-                        openCamera()
-                    },
-                    onLink = {
-                        panel = null
-                        dialog = EdDialog.LINK
-                    },
-                    onDone = {
-                        panel = null
-                        keyboard?.show()
-                    },
-                )
-                null -> {}
+            if (!imeVisible && panel != null) {
+                // One opening animation belongs to the expanded tool area, not to
+                // each tool. Switching its contents retains the current height.
+                SoftPanel {
+                    when (panel) {
+                        EdPanel.STYLE -> StylePanel(editor, panelHeight)
+                        EdPanel.PARAGRAPH -> ParagraphPanel(editor, panelHeight)
+                        EdPanel.INSERT -> InsertPanel(
+                            editor, panelHeight,
+                            onImage = {
+                                panel = null
+                                pickImages.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                            },
+                            onCamera = {
+                                panel = null
+                                openCamera()
+                            },
+                            onLink = {
+                                panel = null
+                                dialog = EdDialog.LINK
+                            },
+                            onDone = {
+                                panel = null
+                                keyboard?.show()
+                            },
+                        )
+                        null -> {}
+                    }
+                }
             }
         }
         Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.ime.union(WindowInsets.navigationBars)))
@@ -474,13 +546,14 @@ fun EditorScreen(docId: String, isNew: Boolean) {
                     Repository.toggleStar(docId)
                     Toast.done(if (was) "已取消收藏" else "收藏成功")
                 },
-                onInfo = { editor.save(); dialog = EdDialog.INFO },
+                onInfo = { editor.save(); finishEditing(); tocOpen = false; editor.commentView = null; infoOpen = true },
                 onFind = { finishEditing(); editor.openFind() },
                 onSaveTemplate = { dialog = EdDialog.TEMPLATE },
                 onComments = { editor.commentView = EditorState.CommentView(null) },
                 onToc = {
                     val headings = editor.headings()
-                    if (headings.isEmpty()) Toast.show("文档中还没有标题") else {
+                    run {
+                        infoOpen = false
                         finishEditing()
                         editor.commentView = null
                         // 打开时先高亮当前看到的那一节
@@ -488,8 +561,7 @@ fun EditorScreen(docId: String, isNew: Boolean) {
                         tocOpen = true
                     }
                 },
-                onHistory = { leaveTo(Screen.Versions(docId, VersionKind.HISTORY)) },
-                onLocalVersions = { leaveTo(Screen.Versions(docId, VersionKind.LOCAL)) },
+                onLocalVersions = { leaveTo(Screen.Versions(docId)) },
                 onShare = { kind ->
                     editor.save()
                     shareDoc(context, docId, kind)
@@ -547,23 +619,6 @@ fun EditorScreen(docId: String, isNew: Boolean) {
                 onConfirm = { text, url -> dialog = null; editor.applyLink(text, url.trim()) },
             )
         }
-        EdDialog.INFO -> {
-            val it = Repository.get(docId)
-            val content = editor.content()
-            val body = content.bodyText()
-            InfoDialog(
-                "文档信息",
-                listOf(
-                    "标题" to docTitle,
-                    "位置" to (it?.let(::locationOf) ?: "我的桌面"),
-                    "创建时间" to formatFullTime(it?.createdAt ?: 0),
-                    "最近修改" to formatFullTime(it?.updatedAt ?: 0),
-                    "总字数" to countWords(editor.title.text + "\n" + body).toString(),
-                    "字符数" to body.count { c -> !c.isWhitespace() }.toString(),
-                    "图片 / 表格" to "${content.blocks.count { b -> b.type == BlockType.IMAGE }} / ${content.blocks.count { b -> b.type == BlockType.TABLE }}",
-                ),
-            ) { dialog = null }
-        }
         EdDialog.TEMPLATE -> InputDialog(
             title = "保存为模板", initial = editor.title.text, placeholder = "模板名称", confirmText = "保存",
             onDismiss = { dialog = null },
@@ -606,7 +661,9 @@ private fun TocPanel(editor: EditorState, height: Dp, active: String?, onClose: 
                 fontSize = 16.sp, color = Kongye.Primary,
             )
         }
-        LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp)) {
+        if (headings.isEmpty()) Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.Center) {
+            Text("还没有目录，设置正文标题后会显示在这里", color = Kongye.Text3, fontSize = 14.sp)
+        } else LazyColumn(Modifier.weight(1f).fillMaxWidth(), contentPadding = PaddingValues(bottom = 16.dp)) {
             items(headings, key = { it.id }) { h ->
                 val level = h.type.ordinal - top
                 Text(
@@ -624,4 +681,38 @@ private fun TocPanel(editor: EditorState, height: Dp, active: String?, onClose: 
             }
         }
     }
+}
+
+@Composable
+private fun InfoPanel(height: Dp, rows: List<Pair<String, String>>, onClose: () -> Unit) {
+    Column(Modifier.fillMaxWidth().height(height).background(Kongye.Surface)) {
+        HLine()
+        Box(Modifier.fillMaxWidth().height(52.dp)) {
+            Text("文档信息", Modifier.align(Alignment.Center), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Kongye.Ink)
+            Text("完成", Modifier.align(Alignment.CenterEnd).clickable(onClick = onClose).padding(horizontal = 20.dp, vertical = 10.dp), fontSize = 16.sp, color = Kongye.Primary)
+        }
+        Column(Modifier.weight(1f).fillMaxWidth().verticalScroll(rememberScrollState()).padding(horizontal = 20.dp, vertical = 8.dp)) {
+            rows.forEach { (label, value) ->
+                Row(Modifier.fillMaxWidth().padding(vertical = 9.dp), horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween) {
+                    Text(label, fontSize = 14.sp, color = Kongye.Text3)
+                    Text(value, Modifier.weight(1f).padding(start = 20.dp), fontSize = 14.sp, color = Kongye.Text, textAlign = androidx.compose.ui.text.style.TextAlign.End)
+                }
+            }
+        }
+    }
+}
+
+/** Slide a fully measured panel upward with the same Material motion as share sheets. */
+@Composable
+private fun SoftPanel(content: @Composable () -> Unit) {
+    val progress = remember { androidx.compose.animation.core.Animatable(0f,visibilityThreshold=0.00001f) }
+    // Material 3 1.4.0 ModalBottomSheet uses StandardMotionTokens.DefaultSpatial.
+    // The corresponding MotionScheme API is internal in that library version.
+    val motion = remember { androidx.compose.animation.core.spring<Float>(dampingRatio=0.9f,stiffness=700f) }
+    LaunchedEffect(Unit) { progress.animateTo(1f,motion) }
+    Box(Modifier.clipToBounds().layout { measurable,constraints ->
+        val panel = measurable.measure(constraints.copy(minHeight=0))
+        val shown = (panel.height*progress.value.coerceIn(0f,1f)).roundToInt()
+        layout(panel.width,shown) { panel.placeRelative(0,0) }
+    }) { content() }
 }

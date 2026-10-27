@@ -48,7 +48,7 @@ data class AppSettings(
     val darkFrom: Int = 22 * 60,
     val darkTo: Int = 7 * 60,
     val backup: BackupSettings = BackupSettings(),
-    /** 本地版本页的“系统自动备份”：编辑时每 10 分钟给文档存一个本地版本 */
+    /** 本地版本系统自动备份：默认开启，保留 v2.5 的每 10 分钟保存机制。 */
     val autoLocalVersion: Boolean = true,
     /** 文件页的排序方式（SortMode 名称）和方向，下次打开仍沿用 */
     val filesSortMode: String = "UPDATED",

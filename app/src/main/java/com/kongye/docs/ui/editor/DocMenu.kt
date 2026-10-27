@@ -40,7 +40,6 @@ class DocMenuActions(
     val onSaveTemplate: () -> Unit,
     val onComments: () -> Unit,
     val onToc: () -> Unit,
-    val onHistory: () -> Unit,
     val onLocalVersions: () -> Unit,
     val onShare: (ShareKind) -> Unit,
     val onDelete: () -> Unit,
@@ -71,8 +70,6 @@ fun DocMenuSheet(starred: Boolean, words: Int, actions: DocMenuActions, onDismis
             MenuRow(KongyeIcons.CommentFilled, "查看评论") { dismiss(actions.onComments) }
             HLine(color = Kongye.Divider)
             MenuRow(KongyeIcons.TocFilled, "查看目录") { dismiss(actions.onToc) }
-            HLine(color = Kongye.Divider)
-            MenuRow(KongyeIcons.HistoryFilled, "查看历史") { dismiss(actions.onHistory) }
             HLine(color = Kongye.Divider)
             MenuRow(KongyeIcons.SaveFilled, "查看本地版本") { dismiss(actions.onLocalVersions) }
             Band()

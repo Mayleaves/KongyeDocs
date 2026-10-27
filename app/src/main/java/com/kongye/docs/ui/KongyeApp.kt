@@ -84,7 +84,7 @@ fun KongyeApp() {
                     is Screen.TemplatePreview -> TemplatePreviewScreen(screen.templateId, screen.userTemplate, screen.parentId)
                     is Screen.Editor -> EditorScreen(screen.docId, screen.isNew)
                     is Screen.ImagePreview -> ImagePreviewScreen(screen.docId)
-                    is Screen.Versions -> VersionsScreen(screen.docId, screen.kind)
+                    is Screen.Versions -> VersionsScreen(screen.docId)
                     is Screen.VersionPreview -> VersionPreviewScreen(screen.docId, screen.versionId)
                     Screen.Downloads -> DownloadsScreen()
                     is Screen.ExportView -> ExportViewScreen(screen.id)

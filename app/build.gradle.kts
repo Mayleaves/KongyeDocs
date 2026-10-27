@@ -4,6 +4,9 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+val updateFixture = providers.gradleProperty("updateFixture").orNull == "true"
+if (updateFixture && gradle.startParameter.taskNames.any { it.contains("release",ignoreCase = true) }) error("Update fixture is debug-only")
+
 android {
     namespace = "com.kongye.docs"
     compileSdk = 37
@@ -12,16 +15,16 @@ android {
         applicationId = "com.kongye.docs"
         minSdk = 26
         targetSdk = 36
-        versionCode = 16
-        versionName = "2.5"
+        versionCode = if (updateFixture) providers.gradleProperty("fixtureCode").get().toInt() else 20
+        versionName = if (updateFixture) providers.gradleProperty("fixtureVersion").get() else "2.9"
         testInstrumentationRunner = "com.kongye.docs.RegressionInstrumentation"
         manifestPlaceholders["appLabel"] = "空叶文档"
     }
 
     buildTypes {
         debug {
-            applicationIdSuffix = ".audit"
-            manifestPlaceholders["appLabel"] = "空叶文档测试"
+            applicationIdSuffix = if (updateFixture) ".upgradefixture" else ".audit"
+            manifestPlaceholders["appLabel"] = if (updateFixture) "空叶文档更新测试" else "空叶文档测试"
         }
         release {
             isMinifyEnabled = true

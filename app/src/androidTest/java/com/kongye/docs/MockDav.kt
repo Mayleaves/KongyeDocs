@@ -15,6 +15,7 @@ class MockDav : AutoCloseable {
     val files=ConcurrentHashMap<String,ByteArray>()
     val tamper=AtomicBoolean(false)
     val deletes=AtomicInteger(0)
+    val rejectDelete=AtomicBoolean(false)
     private val running=AtomicBoolean(true)
     private val worker=thread(isDaemon=true,name="Synthetic-DAV") {
         while(running.get()) {
@@ -42,7 +43,7 @@ class MockDav : AutoCloseable {
             "MKCOL" -> { code=405; byteArrayOf() }
             "PUT" -> { files[name]=body; code=201; byteArrayOf() }
             "GET" -> if(tamper.get()) "CORRUPTED".toByteArray() else files[name] ?: byteArrayOf()
-            "DELETE" -> { files.remove(name); deletes.incrementAndGet(); byteArrayOf() }
+            "DELETE" -> { if(rejectDelete.get()) code=403 else { files.remove(name); deletes.incrementAndGet() }; byteArrayOf() }
             "PROPFIND" -> {
                 code=207
                 ("<d:multistatus xmlns:d=\"DAV:\">"+files.entries.joinToString("") { (name,bytes) ->
