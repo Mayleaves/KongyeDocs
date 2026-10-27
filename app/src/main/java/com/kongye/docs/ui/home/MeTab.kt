@@ -59,6 +59,7 @@ fun MeTab(items: List<Item>) {
     val alive = remember(items) { items.filter { Repository.isAlive(it, items) } }
     val docCount = alive.count { it.isDoc }
     val folderCount = alive.count { it.isFolder }
+    val starredCount = alive.count { it.starred }
     val words = alive.filter { it.isDoc }.sumOf { it.words }
     val trashCount = items.count { it.deletedAt != null }
     val exports by Repository.exports.collectAsState()
@@ -69,7 +70,7 @@ fun MeTab(items: List<Item>) {
     val settings by Settings.state.collectAsState()
 
     Column(Modifier.fillMaxSize().background(Kongye.Band).verticalScroll(rememberScrollState())) {
-        // 顶部：问候语和日期，下面三个统计块（字数 · 文档数 · 文件夹数），一只线条小猫坐在最右边的块上
+        // 顶部：问候语和日期，下面三个统计块（文件 · 文件夹 · 收藏），一只线条小猫坐在最右边的块上
         Column(
             Modifier.fillMaxWidth().background(Kongye.Surface).statusBarsPadding()
                 .padding(start = 16.dp, end = 16.dp, top = 22.dp, bottom = 24.dp),
@@ -86,9 +87,9 @@ fun MeTab(items: List<Item>) {
             Spacer(Modifier.height(18.dp))
             Box(Modifier.fillMaxWidth()) {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    StatBlock(words, "字数")
-                    StatBlock(docCount, "文档数")
-                    StatBlock(folderCount, "文件夹数")
+                    StatBlock(docCount, "文件")
+                    StatBlock(folderCount, "文件夹")
+                    StatBlock(starredCount, "收藏")
                 }
                 // 小猫的“地面”就是统计块的上沿，尾巴垂在块的前面
                 LineCat(
