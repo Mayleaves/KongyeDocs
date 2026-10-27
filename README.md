@@ -27,7 +27,7 @@
 - **模板**：内置会议纪要、周报、读书笔记、待办、日记、旅行、项目计划等模板，也可以把文档存为模板
 - **备份**：本地备份（系统文件夹）和云端备份（WebDAV，如坚果云），均支持自动备份、手动备份、恢复和删除备份文件
 - **深色模式**：跟随系统、浅色、深色、定时切换
-- **小彩蛋**：「我的」里会随时间变换动作的线条小猫，支持点击互动和待机动作；猫饭、热气、毛线球和打呵欠使用 SVG 路径绘制，颜色随主题变化。「关于」里还有落叶动画
+- **小彩蛋**：「我的」里会随时间变换动作的线条小猫，支持点击互动和待机动作；小鱼干猫碗、热气、毛线球、打呵欠、逗猫棒和小老鼠使用 SVG 路径绘制，玩耍时猫爪、玩具和尾巴一起运动，颜色随主题变化。「关于」里还有落叶动画
 
 ## 保存与备份
 
@@ -85,6 +85,12 @@ debug 包使用独立包名 `com.kongye.docs.audit` 和“空叶文档测试”�
 adb -s DEVICE_SERIAL install -r app/build/outputs/apk/debug/app-debug.apk
 adb -s DEVICE_SERIAL install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 adb -s DEVICE_SERIAL shell am instrument -w com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+```
+
+只检查猫碗和两种玩具动画（合成画面，含浅色 / 深色模式）：
+
+```bash
+adb -s DEVICE_SERIAL shell am instrument -w -e only cats com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
 ```
 
 ## 声明

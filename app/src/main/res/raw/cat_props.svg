@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 150" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+  <!-- The fish sits behind the front lip; its forked tail stays above the bowl. -->
+  <path id="fish" d="M17 85L11 76L18 79L25 75L24 84L22 86C29 90 26 95 20 97C12 95 11 90 17 85Z"/>
+  <path id="fishDetail" d="M17 85L22 86M20 88L18 92M23 90L22.9 90"/>
+  <path id="bowlFront" d="M7 92Q19 97 31 92L28 101Q19 106 10 101Z"/>
+  <path id="wand" d="M8 28L27 44M7 27L12 32"/>
+  <path id="cord" d="M27 44C19 48 25 56 19 61"/>
+  <path id="feather" d="M19 61C11 60 9 69 14 76C21 75 25 68 19 61Z"/>
+  <path id="featherDetail" d="M19 63L15 73M17 68L13 66M16 71L20 69"/>
+  <path id="mouse" d="M9 99Q9 94 14 93C9 89 13 85 16 87Q20 88 19 93Q24 92 29 98Q25 103 15 102Q10 102 9 99Z"/>
+  <path id="mouseDetail" d="M14 90Q16 88 17 91M24 96L24.1 96M28 98L30 98M26 99L28 101"/>
+  <path id="mouseTail" d="M10 99C7 100 5 96 7 94C9 91 11 94 9 95"/>
+  <path id="playPaw" d="M35 94C31 92 28 87 24 82C21 80 21 76 24 74C27 72 30 74 31 77L45 89Q51 94 50 101"/>
+  <path id="pawToes" d="M23 77L26 79M26 75L29 77"/>
+  <path id="leftPaw" d="M44 103A5 5 0 0 1 54 103"/>
+  <path id="rightPaw" d="M61 103A5 5 0 0 1 71 103"/>
+</svg>

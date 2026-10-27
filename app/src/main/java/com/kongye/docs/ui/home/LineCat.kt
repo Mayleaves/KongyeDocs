@@ -96,7 +96,7 @@ internal const val CAT_GROUND = (GROUND - Y0) * DP_PER_UNIT
 
 /** 点小猫（或它自己闲着）时的小动作，以及各自持续的秒数 */
 private enum class CatAct(val seconds: Float) {
-    PET(1.9f), FIERCE(1.5f), STRETCH(1.9f), CLINGY(1.8f), WINK(0.9f), TAIL(1.4f), JUMP(0.8f), MEOW(1.1f), YAWN(2.4f)
+    PET(1.9f), FIERCE(1.5f), STRETCH(1.9f), CLINGY(1.8f), WINK(0.9f), TAIL(1.4f), JUMP(0.8f), MEOW(1.1f), YAWN(2.4f), WAND(3.2f), MOUSE(3.0f)
 }
 
 private enum class Eyes { OPEN, CLOSED, HAPPY, SQUEEZE, SPARKLE, ANGRY, WINK }
@@ -156,7 +156,7 @@ private object CatMemory {
 
 /**
  * 线条小猫：样子跟着时段走（早上、中午睁着眼，下午、晚上眯着眼，深夜趴着睡觉），每个时段第一次见面会说一句话；
- * 点一下做个小动作（被摸爽了、凶狠猫猫、伸懒腰、黏人猫猫、眨眼、甩尾巴、跳一下、喵一声、打呵欠），闲着时偶尔自己伸个懒腰；
+ * 点一下做个小动作（被摸爽了、凶狠猫猫、伸懒腰、黏人猫猫、眨眼、甩尾巴、跳一下、喵一声、打呵欠、扑逗猫棒、拨小老鼠），闲着时偶尔自己伸个懒腰；
  * 连点几下（每次 5～8 下，随机）会冒出一句悄悄话。
  */
 @Composable
@@ -166,6 +166,7 @@ fun LineCat(part: DayPart, messages: () -> List<String>, modifier: Modifier = Mo
     val yarn = remember(resources) { loadCatSvg(resources,com.kongye.docs.R.raw.cat_yarn) }
     val steam = remember(resources) { loadCatSvg(resources,com.kongye.docs.R.raw.cat_steam) }
     val yawn = remember(resources) { loadYawnSvg(resources) }
+    val props = remember(resources) { loadCatProps(resources) }
     val haptic = LocalHapticFeedback.current
     // 动画时钟（秒），只在绘制时读取，不会引起重组
     val clock = produceState(0f) {
@@ -219,7 +220,7 @@ fun LineCat(part: DayPart, messages: () -> List<String>, modifier: Modifier = Mo
         if (part == DayPart.NIGHT) return@LaunchedEffect
         while (true) {
             delay(Random.nextLong(15_000, 25_000))
-            if (act == null && clock.value - lastTap > 6f) start(listOf(CatAct.STRETCH, CatAct.TAIL, CatAct.WINK, CatAct.YAWN).random())
+            if (act == null && clock.value - lastTap > 6f) start(listOf(CatAct.STRETCH, CatAct.TAIL, CatAct.WINK, CatAct.YAWN, CatAct.WAND, CatAct.MOUSE).random())
         }
     }
 
@@ -230,8 +231,15 @@ fun LineCat(part: DayPart, messages: () -> List<String>, modifier: Modifier = Mo
         Canvas(
             Modifier.fillMaxSize()
                 .semantics {
-                    contentDescription = if(act==CatAct.YAWN) "小猫，打呵欠" else "小猫"
-                    customActions = listOf(androidx.compose.ui.semantics.CustomAccessibilityAction("打呵欠") { start(CatAct.YAWN); true })
+                    contentDescription = when(act) {
+                        CatAct.YAWN -> "小猫，打呵欠"
+                        CatAct.WAND -> "小猫，扑逗猫棒"
+                        CatAct.MOUSE -> "小猫，拨小老鼠"
+                        else -> "小猫"
+                    }
+                    customActions = listOf("打呵欠" to CatAct.YAWN,"扑逗猫棒" to CatAct.WAND,"拨小老鼠" to CatAct.MOUSE).map { (label,action) ->
+                        androidx.compose.ui.semantics.CustomAccessibilityAction(label) { lastTap=clock.value; start(action); true }
+                    }
                 }
                 .clickable(remember { MutableInteractionSource() }, indication = null) {
                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
@@ -252,7 +260,7 @@ fun LineCat(part: DayPart, messages: () -> List<String>, modifier: Modifier = Mo
             withTransform({
                 scale(k, k, pivot = Offset.Zero)
                 translate(-X0, -Y0)
-            }) { drawCat(part, a, p, t, ink, bg, pink, bowl, yarn, steam, yawn) }
+            }) { drawCat(part, a, p, t, ink, bg, pink, bowl, yarn, steam, yawn, props) }
         }
         // 小猫说的话：气泡贴在它脑袋左边，尖角指向它，不占布局
         Box(
@@ -314,8 +322,9 @@ private fun CatBubble(text: String) {
 }
 
 /** 画一帧小猫（设计稿坐标）。p 是当前小动作的进度（0～1），t 是动画时钟（秒） */
-private fun DrawScope.drawCat(part: DayPart, act: CatAct?, p: Float, t: Float, ink: Color, bg: Color, pink: Color, bowl: Path, yarn: Path, steam: Path, yawn: List<YawnPart>) {
+private fun DrawScope.drawCat(part: DayPart, act: CatAct?, p: Float, t: Float, ink: Color, bg: Color, pink: Color, bowl: Path, yarn: Path, steam: Path, yawn: List<YawnPart>, props: CatProps) {
     val wave = sin(p * PI.toFloat())
+    val playing = act == CatAct.WAND || act == CatAct.MOUSE
     fun line(w: Float) = Stroke(w, cap = StrokeCap.Round, join = StrokeJoin.Round)
 
     // 背景小物件：早上一个慢慢转的太阳，晚上和深夜一弯月亮
@@ -328,8 +337,8 @@ private fun DrawScope.drawCat(part: DayPart, act: CatAct?, p: Float, t: Float, i
                 }
             }
         }
-        DayPart.NOON -> {
-            drawPath(bowl,ink,style=line(2.1f))
+        DayPart.NOON -> if(!playing) {
+            drawFishBowl(bowl,props,ink,bg)
             repeat(3) { i ->
                 val phase = (t*0.38f+i/3f)%1f
                 val y = 87f-phase*20f
@@ -337,7 +346,7 @@ private fun DrawScope.drawCat(part: DayPart, act: CatAct?, p: Float, t: Float, i
                 translate(x,y) { drawPath(steam,ink.copy(alpha=sin(phase*PI.toFloat())*0.75f),style=line(2.1f)) }
             }
         }
-        DayPart.AFTERNOON -> drawPath(yarn,ink,style=line(2.1f))
+        DayPart.AFTERNOON -> if(!playing) drawPath(yarn,ink,style=line(2.1f))
         DayPart.EVENING, DayPart.NIGHT -> {
             drawPath(CatPaths.moon, ink, style = line(2f))
             drawPath(CatPaths.star, ink.copy(alpha = 0.35f + 0.45f * (0.5f + 0.5f * sin(t * 2.4f))), style = line(1.6f))
@@ -377,6 +386,7 @@ private fun DrawScope.drawCat(part: DayPart, act: CatAct?, p: Float, t: Float, i
             CatAct.TAIL -> sin(p * PI.toFloat() * 4f) * 18f * (1f - p * 0.4f)
             CatAct.FIERCE -> -32f * wave
             CatAct.PET, CatAct.CLINGY -> sin(p * PI.toFloat() * 3f) * 10f
+            CatAct.WAND, CatAct.MOUSE -> sin(p * PI.toFloat() * 4f) * 9f * wave
             else -> sin(t * 1.3f) * 3f
         }
         rotate(swing, pivot = Offset(112f, 97f)) {
@@ -406,9 +416,11 @@ private fun DrawScope.drawCat(part: DayPart, act: CatAct?, p: Float, t: Float, i
             }
         }
         drawPath(CatPaths.whiskers, ink, style = line(1.7f))
-        drawPath(CatPaths.paws, ink, style = line(2f))
+        drawPath(if(playing) props["rightPaw"] else CatPaths.paws, ink, style = line(2f))
         drawPath(CatPaths.leg, ink, style = line(2f))
     }
+
+    if(playing) drawCatPlay(props,act==CatAct.WAND,p,ink,bg)
 
     // 小动作附带的符号（不跟着变形）
     when (act) {
@@ -441,7 +453,8 @@ private fun eyesFor(part: DayPart, act: CatAct?, t: Float): Eyes {
         CatAct.CLINGY -> Eyes.SPARKLE
         CatAct.WINK -> Eyes.WINK
         CatAct.MEOW, CatAct.YAWN -> Eyes.CLOSED
-        CatAct.TAIL -> Eyes.OPEN
+        CatAct.TAIL, CatAct.MOUSE -> Eyes.OPEN
+        CatAct.WAND -> Eyes.SPARKLE
         null -> if (part == DayPart.MORNING || part == DayPart.NOON) Eyes.OPEN else Eyes.CLOSED
     }
     // 睁着眼时隔几秒眨一下
@@ -449,7 +462,7 @@ private fun eyesFor(part: DayPart, act: CatAct?, t: Float): Eyes {
 }
 
 private fun mouthFor(act: CatAct?) = when (act) {
-    CatAct.PET, CatAct.CLINGY -> Mouth.OMEGA
+    CatAct.PET, CatAct.CLINGY, CatAct.WAND -> Mouth.OMEGA
     CatAct.MEOW -> Mouth.MEOW
     CatAct.STRETCH -> Mouth.YAWN
     CatAct.FIERCE -> Mouth.HISS
