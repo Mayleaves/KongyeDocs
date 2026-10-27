@@ -222,7 +222,7 @@ fun LocalBackupScreen() {
             SettingsTitle("手动备份")
             SettingsGroup {
                 if (s.localTree.isNotEmpty()) {
-                    SettingRow("立即备份", if (busy) "正在备份…" else "存到备份位置") {
+                    SettingRow("立即备份", if (busy) "正在备份…" else "存到备份位置", showChevron = false) {
                         if (busy) return@SettingRow
                         busy = true
                         scope.launch {
@@ -237,7 +237,7 @@ fun LocalBackupScreen() {
                     }
                     SettingRow("另存到其他位置", last = true) { saveAs.launch(manualFileName()) }
                 } else {
-                    SettingRow("立即备份", "选择保存位置", last = true) { saveAs.launch(manualFileName()) }
+                    SettingRow("立即备份", "选择保存位置", last = true, showChevron = false) { saveAs.launch(manualFileName()) }
                 }
             }
 

@@ -366,6 +366,39 @@ object FeatureUiRegression {
         output.outputStream().use { check(crop.compress(Bitmap.CompressFormat.PNG,100,it)) }
         crop.recycle(); image.recycle()
         passed("afternoon-cat-yarn-render")
+        // Exercise the actual accessibility action, SVG path rendering and theme fills.
+        Thread.sleep(4300)
+        val cat=find("小猫",exact=true) ?: error("Cat accessibility node missing")
+        val yawnAction=cat.actionList.firstOrNull { it.label?.toString()=="打呵欠" } ?: error("Yawn action missing")
+        check(cat.performAction(yawnAction.id))
+        waitFor("SVG yawn action") { find("小猫，打呵欠",exact=true)!=null }
+        fun catFrame(name: String): Bitmap {
+            val frame=automation.takeScreenshot() ?: error("Yawn screenshot failed")
+            val result=Bitmap.createBitmap(frame,(frame.width-400)/2,(frame.height-400)/2,400,400)
+            frame.recycle()
+            File(context.getExternalFilesDir(null),name).outputStream().use { check(result.compress(Bitmap.CompressFormat.PNG,100,it)) }
+            return result
+        }
+        Thread.sleep(120)
+        val early=catFrame("cat-yawn-early.png")
+        Thread.sleep(620)
+        val open=catFrame("cat-yawn-open.png")
+        fun svgX(x: Float)=(200-CAT_W*density/2+(x-6)*0.7f*density).toInt().coerceIn(0,399)
+        fun svgY(y: Float)=(200-CAT_H*density/2+(y+10.73f-16)*0.7f*density).toInt().coerceIn(0,399)
+        var mouthChanges=0
+        for(y in svgY(47f)..svgY(69f)) for(x in svgX(39f)..svgX(68f)) if(early.getPixel(x,y)!=open.getPixel(x,y)) mouthChanges++
+        check(mouthChanges>30) { "SVG mouth did not animate: $mouthChanges pixels" }
+        early.recycle(); open.recycle()
+        val wasDark=main { Kongye.dark }
+        try {
+            main { Kongye.dark=true }
+            Thread.sleep(180)
+            val dark=catFrame("cat-yawn-dark.png")
+            val bodyPixel=dark.getPixel(svgX(80f),svgY(75f))
+            check(android.graphics.Color.red(bodyPixel)<80 && android.graphics.Color.green(bodyPixel)<80 && android.graphics.Color.blue(bodyPixel)<80) { "SVG body has a white fill in dark theme" }
+            dark.recycle()
+        } finally { main { Kongye.dark=wasDark } }
+        passed("svg-yawn-action-animated-mouth-and-dark-theme")
         main {
             val item=Repository.createDoc(null,"版本对比测试",DocContent(listOf(Block(text="这里是尚未修改的正文"))))
             Repository.addVersion(item.id,VersionKind.LOCAL,item.title,DocContent(listOf(Block(text="这里是删除文字"))))
