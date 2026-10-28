@@ -192,11 +192,17 @@ private val nameOrder = Collator.getInstance(Locale.CHINA)
  * 按排序方式排列；“按类型”时文件夹在前、文档在后，同类之间按名称。
  * 手动排序按 manual 记下的顺序，没排过的（之后新建、移进来的）放在最前，新的在上。
  */
+/** Stable fixed pin order, independent of the selected sort direction or manual order. */
+internal fun pinnedFirst(list: List<Item>): List<Item> = list.sortedWith { a,b ->
+    val order=b.pinnedAt.compareTo(a.pinnedAt)
+    if(order!=0) order else if(a.pinned) a.id.compareTo(b.id) else 0
+}
+
 fun sortItems(list: List<Item>, spec: SortSpec, manual: List<String> = emptyList()): List<Item> {
     if (spec.mode == SortMode.MANUAL) {
         val rank = manual.withIndex().associate { it.value to it.index }
         val (known, fresh) = list.partition { it.id in rank }
-        return fresh.sortedByDescending { it.createdAt } + known.sortedBy { rank[it.id] }
+        return pinnedFirst(fresh.sortedByDescending { it.createdAt } + known.sortedBy { rank[it.id] })
     }
     val byName = compareBy<Item, String>(nameOrder) { it.displayTitle }
     val ascending = when (spec.mode) {
@@ -205,7 +211,7 @@ fun sortItems(list: List<Item>, spec: SortSpec, manual: List<String> = emptyList
         SortMode.CREATED -> list.sortedBy { it.createdAt }
         SortMode.UPDATED, SortMode.MANUAL -> list.sortedBy { it.updatedAt }
     }
-    return if (spec.desc) ascending.reversed() else ascending
+    return pinnedFirst(if (spec.desc) ascending.reversed() else ascending)
 }
 
 fun updatedMeta(item: Item) = "${stampTime(item.updatedAt)} 更新"
@@ -302,7 +308,7 @@ fun ItemCollection(
                     if (reorder.dragging) {
                         reorder.pointer = change.position
                         reorder.moveBy(if (useGrid) d else Offset(0f, d.y), slots(), useGrid, keepScroll)
-                    } else if (canDrag) {
+                    } else if (canDrag && entries.none { it.first.id == id && it.first.pinned }) {
                         moved += d
                         if (moved.getDistance() > viewConfiguration.touchSlop) {
                             // 长按后拖动：这次长按不算选择，改为拖动排序
@@ -545,16 +551,18 @@ private fun HomePage(sub: HomeSub, items: List<Item>, grid: Boolean, toggle: @Co
 }
 
 /** 最近打开或编辑过的文档，按日期分组 */
-private fun recentSections(items: List<Item>): List<Section> =
-    items.filter { it.isDoc && Repository.isAlive(it, items) && (it.openedAt > 0 || it.updatedAt > it.createdAt) }
-        .map { it to max(it.openedAt, it.updatedAt) }
+internal fun recentSections(items: List<Item>): List<Section> {
+    val available=items.filter { it.isDoc && Repository.isAlive(it,items) }
+    val pinned=pinnedFirst(available.filter { it.pinned })
+    val sections=available.filter { !it.pinned && (it.openedAt>0 || it.updatedAt>it.createdAt) }
+        .map { it to max(it.openedAt,it.updatedAt) }
         .sortedByDescending { it.second }
         .groupBy { dateHeader(it.second) }
-        .map { (date, list) ->
-            Section(date, list.map { (item, time) ->
-                item to "${stampTime(time)} ${if (item.updatedAt >= item.openedAt) "编辑" else "打开"}"
-            })
-        }
+        .map { (date,list) -> Section(date,list.map { (item,time) ->
+            item to "${stampTime(time)} ${if(item.updatedAt>=item.openedAt) "编辑" else "打开"}"
+        }) }
+    return (if(pinned.isEmpty()) emptyList() else listOf(Section("置顶",pinned.map { it to updatedMeta(it) })))+sections
+}
 
 // ---------------- 文件（我的桌面） ----------------
 

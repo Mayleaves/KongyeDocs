@@ -22,7 +22,12 @@ data class Item(
     val deletedAt: Long? = null,
     val preview: String = "",
     val words: Int = 0,
+    /** Omit the default so checksums of backups from before pinning remain valid. */
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val pinnedAt: Long = 0L,
 ) {
+    val pinned get() = pinnedAt > 0L
     val isDoc get() = type == ItemType.DOC
     val isFolder get() = type == ItemType.FOLDER
     val displayTitle get() = title.ifBlank { if (isDoc) "无标题" else "未命名文件夹" }

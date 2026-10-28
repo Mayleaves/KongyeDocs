@@ -62,6 +62,7 @@ object KongyeIcons {
     val Folder = icon("folder") { s(FOLDER) }
     val FolderFilled = icon("folderFilled") { f(FOLDER); s(FOLDER) }
     val FolderPlus = icon("folderPlus") { s(FOLDER); s("M12 11v5M9.5 13.5h5") }
+    val Pin = icon("pin") { s("M9 3h6M10 3v5l-3 5v2h10v-2l-3-5V3M12 15v6") }
     val Star = icon("star") { s(STAR) }
     val StarFilled = icon("starFilled") { f(STAR); s(STAR) }
     val User = icon("user") { s(circle(12f, 8.5f, 3.8f)); s("M4.5 20c.8-3.6 3.9-5.8 7.5-5.8s6.7 2.2 7.5 5.8") }

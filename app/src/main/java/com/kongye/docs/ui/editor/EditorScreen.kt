@@ -538,6 +538,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
         EdSheet.Share -> DocShareSheet(docId, onDismiss = { sheet = null }, prepare = { editor.save() })
         EdSheet.More -> DocMenuSheet(
             starred = item?.starred == true,
+            pinned = item?.pinned == true,
             words = countWords(editor.title.text + "\n" + editor.content().bodyText()),
             onDismiss = { sheet = null },
             actions = DocMenuActions(
@@ -545,6 +546,11 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                     val was = item?.starred == true
                     Repository.toggleStar(docId)
                     Toast.done(if (was) "已取消收藏" else "收藏成功")
+                },
+                onTogglePin = {
+                    val was=item?.pinned==true
+                    Repository.togglePin(docId)
+                    Toast.done(if(was) "已取消置顶" else "已置顶")
                 },
                 onInfo = { editor.save(); finishEditing(); tocOpen = false; editor.commentView = null; infoOpen = true },
                 onFind = { finishEditing(); editor.openFind() },

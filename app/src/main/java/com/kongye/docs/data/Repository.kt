@@ -278,6 +278,11 @@ object Repository {
     fun toggleStar(id: String) = update(id) { it.copy(starred = !it.starred) }
 
     @Synchronized
+    fun togglePin(id: String) = update(id) {
+        it.copy(pinnedAt = if(it.pinned) 0L else System.currentTimeMillis().coerceAtLeast(1L))
+    }
+
+    @Synchronized
     fun move(id: String, parentId: String?) {
         require(parentId == null || (get(parentId)?.isFolder == true && parentId != id && descendants(id).none { it.id == parentId })) { "不能移入自身或子文件夹" }
         update(id) { it.copy(parentId = parentId) }

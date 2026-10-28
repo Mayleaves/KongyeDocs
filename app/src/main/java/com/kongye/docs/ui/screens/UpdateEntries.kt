@@ -15,6 +15,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kongye.docs.data.AppRelease
 import com.kongye.docs.data.AppUpdates
+import com.kongye.docs.data.ReleaseNotes
 import com.kongye.docs.ui.components.*
 import com.kongye.docs.ui.theme.Kongye
 import com.kongye.docs.util.Share
@@ -81,7 +82,7 @@ internal fun UpdateEntries(client: AppUpdates = remember { AppUpdates() }, betwe
         }
     }
     when(stage) {
-        "available" -> ConfirmDialog("发现新版本 v${release?.version}",release?.notes?.take(1600)?.ifBlank { "下载更新后将打开系统安装器，文档数据会保留。" },"下载更新",onDismiss={stage="idle"}) { download() }
+        "available" -> ConfirmDialog("发现新版本 v${release?.version}",ReleaseNotes.summary(release?.notes.orEmpty()),"下载更新",onDismiss={stage="idle"}) { download() }
         "download" -> DialogFrame(onDismiss={job?.cancel();stage="idle"}) {
             DialogTitle("正在下载更新")
             Text("${(progress*100).toInt()}%",Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=10.dp),fontSize=14.sp,color=Kongye.Text)

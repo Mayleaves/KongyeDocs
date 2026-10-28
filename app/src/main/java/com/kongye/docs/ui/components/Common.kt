@@ -212,6 +212,7 @@ fun FileRow(
                 Spacer(Modifier.height(4.dp))
                 Text(subtitle, fontSize = 13.sp, color = Kongye.Sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
+            if(item.pinned && item.deletedAt==null) { PinnedMark(); Spacer(Modifier.width(6.dp)) }
             if (selected != null) {
                 Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { SelectCircle(selected) }
                 Spacer(Modifier.width(8.dp))
@@ -275,6 +276,7 @@ fun FileCard(
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(meta, Modifier.weight(1f), fontSize = 12.sp, color = Kongye.Sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if(item.pinned && item.deletedAt==null) PinnedMark()
             if (item.starred) BookmarkMark()
             if (selected != null) Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) { SelectCircle(selected, 19.dp) }
             else IconBtn(KongyeIcons.MoreV, onMore, tint = Kongye.Icon2, size = 34.dp, iconSize = 18.dp, description = "更多")
@@ -311,6 +313,11 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier, trailing: @Composa
 }
 
 // ---------------- 空状态 ----------------
+
+@Composable
+fun PinnedMark() {
+    Icon(KongyeIcons.Pin,"已置顶",Modifier.size(15.dp),tint=Kongye.Sub)
+}
 
 /** 已收藏的标记：蓝色书签，放在 ⋮ 左边 */
 @Composable

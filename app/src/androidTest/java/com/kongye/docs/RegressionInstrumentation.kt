@@ -13,11 +13,12 @@ import kotlinx.coroutines.runBlocking
 class RegressionInstrumentation : Instrumentation() {
     private var verifyPaths: Pair<String,String>?=null
     private var editorModels=false
+    private var onlyV213=false
     private var onlyCats=false
     private var onlyUi=false
     private var onlyEditor=false
     private var manualKeyboard=false
-    override fun onCreate(arguments: Bundle?) { onlyCats=arguments?.getString("only")=="cats"; editorModels=arguments?.getString("only")=="editor-models"; if(arguments?.getString("only")=="verify-backups") verifyPaths=arguments.getString("before")!! to arguments.getString("after")!!; manualKeyboard=arguments?.getString("only")=="keyboard"; onlyUi=arguments?.getString("only")=="ui"; onlyEditor=arguments?.getString("only")=="editor"; super.onCreate(arguments); start() }
+    override fun onCreate(arguments: Bundle?) { onlyV213=arguments?.getString("only")=="v213"; onlyCats=arguments?.getString("only")=="cats"; editorModels=arguments?.getString("only")=="editor-models"; if(arguments?.getString("only")=="verify-backups") verifyPaths=arguments.getString("before")!! to arguments.getString("after")!!; manualKeyboard=arguments?.getString("only")=="keyboard"; onlyUi=arguments?.getString("only")=="ui"; onlyEditor=arguments?.getString("only")=="editor"; super.onCreate(arguments); start() }
     private fun report(code: Int,bundle: Bundle) {
         File(targetContext.cacheDir,"regression-progress.txt").appendText(bundle.getString("stream").orEmpty())
         sendStatus(code,bundle)
@@ -46,6 +47,11 @@ class RegressionInstrumentation : Instrumentation() {
                     files.forEach { it.delete() }
                     runOnMainSync { activity.finish() }
                 }
+                return
+            }
+            if(onlyV213) {
+                V213Regression.run(this,targetContext) { name -> passed++; report(0,Bundle().apply { putString("stream","PASS $name\n") }) }
+                finish(Activity.RESULT_OK,Bundle().apply { putString("stream","ALL $passed V2.13 TESTS PASSED\n") })
                 return
             }
             if(onlyCats) {
