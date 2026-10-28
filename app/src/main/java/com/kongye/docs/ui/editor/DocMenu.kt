@@ -52,15 +52,20 @@ private val iconTint get() = if (Kongye.dark) Color(0xFFBDBDBD) else Color(0xFF5
 fun DocMenuSheet(starred: Boolean, words: Int, actions: DocMenuActions, onDismiss: () -> Unit, pinned: Boolean = false) {
     BottomSheet(onDismiss, dragToDismiss = false) { dismiss ->
         Column(Modifier.heightIn(max = 680.dp).verticalScroll(rememberScrollState())) {
+            // 收藏、置顶：关闭时是空心图标，打开后变实心
             MenuRow(
-                KongyeIcons.Bookmark, "收藏",
+                if (starred) KongyeIcons.Bookmark else KongyeIcons.BookmarkOutline, "收藏",
                 trailing = {
                     KongyeSwitch(starred, { actions.onToggleStar() })
                 },
                 onClick = actions.onToggleStar,
             )
             HLine(color = Kongye.Divider)
-            MenuRow(KongyeIcons.Pin,"置顶",trailing={ KongyeSwitch(pinned,{ actions.onTogglePin() }) },onClick=actions.onTogglePin)
+            MenuRow(
+                if (pinned) KongyeIcons.PinFilled else KongyeIcons.Pin, "置顶",
+                trailing = { KongyeSwitch(pinned, { actions.onTogglePin() }) },
+                onClick = actions.onTogglePin,
+            )
             HLine(color = Kongye.Divider)
             MenuRow(KongyeIcons.InfoFilled, "文档信息", trailing = { Text("总字数：$words", fontSize = 15.sp, color = Kongye.Sub) }) {
                 dismiss(actions.onInfo)
@@ -76,7 +81,7 @@ fun DocMenuSheet(starred: Boolean, words: Int, actions: DocMenuActions, onDismis
             HLine(color = Kongye.Divider)
             MenuRow(KongyeIcons.SaveFilled, "查看本地版本") { dismiss(actions.onLocalVersions) }
             Band()
-            Row(Modifier.fillMaxWidth().padding(vertical = 8.dp)) {
+            Row(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
                 ShareTile(ShareKind.IMAGE, "分享图片") { dismiss { actions.onShare(ShareKind.IMAGE) } }
                 ShareTile(ShareKind.TEXT, "分享文字") { dismiss { actions.onShare(ShareKind.TEXT) } }
                 ShareTile(ShareKind.MARKDOWN, "分享 Markdown") { dismiss { actions.onShare(ShareKind.MARKDOWN) } }
@@ -116,10 +121,10 @@ private fun MenuRow(icon: ImageVector, label: String, trailing: (@Composable () 
 @Composable
 private fun RowScope.ShareTile(kind: ShareKind, label: String, onClick: () -> Unit) {
     Column(
-        Modifier.weight(1f).heightIn(min = 64.dp).clickable(onClick = onClick).padding(vertical = 4.dp),
+        Modifier.weight(1f).heightIn(min = 64.dp).clickable(onClick = onClick).padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        // Compact share actions keep a comfortable tap target with less empty space.
+        // 比 v2.12 紧凑，但图标和文字之间、整排上下都留出呼吸空间
         val icon = when (kind) {
             ShareKind.IMAGE -> KongyeIcons.Image
             ShareKind.TEXT -> KongyeIcons.TextT
@@ -128,7 +133,7 @@ private fun RowScope.ShareTile(kind: ShareKind, label: String, onClick: () -> Un
         Box(Modifier.height(32.dp), contentAlignment = Alignment.Center) {
             Icon(icon, null, Modifier.size(26.dp), tint = Kongye.Ink2)
         }
-        Spacer(Modifier.height(4.dp))
+        Spacer(Modifier.height(7.dp))
         Text(label, fontSize = 13.sp, color = Kongye.Ink2)
     }
 }

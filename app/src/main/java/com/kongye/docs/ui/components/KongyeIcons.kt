@@ -63,7 +63,9 @@ object KongyeIcons {
         val line = { d: String, w: Float ->
             addPath(addPathNodes(d), stroke = SolidColor(Color.Black), strokeLineWidth = w, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round)
         }
-        if (filled) addPath(addPathNodes(PIN_BODY), fill = SolidColor(Color.Black)) else line(PIN_BODY, 1.6f)
+        // 实心图钉也描一圈同样粗的边，和空心图钉一样大
+        if (filled) addPath(addPathNodes(PIN_BODY), fill = SolidColor(Color.Black))
+        line(PIN_BODY, 1.6f)
         line(PIN_NEEDLE, 1.7f)
         clearGroup()
     }.build()
@@ -102,6 +104,8 @@ object KongyeIcons {
 
     // 文档“更多”菜单（实心，石墨风格）
     val Bookmark = icon("bookmark") { f("M6.5 3h11A1.5 1.5 0 0 1 19 4.5V21l-7-4.6L5 21V4.5A1.5 1.5 0 0 1 6.5 3z") }
+    /** 空心书签（未收藏），外形与实心书签一致，线条向内收半个线宽 */
+    val BookmarkOutline = icon("bookmarkOutline") { s("M7 3.85h10a1.15 1.15 0 0 1 1.15 1.15v14.6l-6.15-4.05-6.15 4.05V5A1.15 1.15 0 0 1 7 3.85z") }
     val InfoFilled = icon("infoFilled") { fe(circle(12f, 12f, 9.2f) + "M10.9 10.4h2.2v7.2h-2.2z" + circle(12f, 7.6f, 1.35f)) }
     val FindReplace = icon("findReplace") {
         f("M4 3h10.5L19 7.5V10.6h-2V8.5h-3.5V5H6v14h4.6v2H4z")

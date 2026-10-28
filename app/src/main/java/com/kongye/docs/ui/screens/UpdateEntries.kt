@@ -5,11 +5,15 @@ import android.net.Uri
 import android.provider.Settings as AndroidSettings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
-import androidx.compose.material3.LinearProgressIndicator
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -19,10 +23,33 @@ import com.kongye.docs.data.ReleaseNotes
 import com.kongye.docs.ui.components.*
 import com.kongye.docs.ui.theme.Kongye
 import com.kongye.docs.util.Share
+import com.kongye.docs.util.sizeText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import java.io.File
+
+/**
+ * 下载进度：与其他弹窗一致的细圆角进度条（灰色底槽、主色进度，没有 Material 进度条末端的圆点），
+ * 下方左边是已下载 / 总大小，右边是百分比
+ */
+@Composable
+internal fun DownloadBar(progress: Float, size: Long) {
+    val shown by animateFloatAsState(progress.coerceIn(0f, 1f), tween(200), label = "download")
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp).padding(top = 6.dp)) {
+        Box(Modifier.fillMaxWidth().height(4.dp).clip(RoundedCornerShape(2.dp)).background(Kongye.Line2)) {
+            if (shown > 0f) Box(Modifier.fillMaxWidth(shown).fillMaxHeight().clip(RoundedCornerShape(2.dp)).background(Kongye.Primary))
+        }
+        Spacer(Modifier.height(10.dp))
+        Row(Modifier.fillMaxWidth()) {
+            Text(
+                if (size > 0) "${sizeText((size * progress).toLong()).ifEmpty { "0 KB" }} / ${sizeText(size)}" else "正在下载…",
+                Modifier.weight(1f), fontSize = 13.sp, color = Kongye.Text3,
+            )
+            Text("${(progress * 100).toInt()}%", fontSize = 13.sp, color = Kongye.Text2)
+        }
+    }
+}
 
 @Composable
 internal fun UpdateEntries(client: AppUpdates = remember { AppUpdates() }, between: @Composable () -> Unit = {}) {
@@ -84,9 +111,8 @@ internal fun UpdateEntries(client: AppUpdates = remember { AppUpdates() }, betwe
     when(stage) {
         "available" -> ConfirmDialog("发现新版本 v${release?.version}",ReleaseNotes.summary(release?.notes.orEmpty()),"下载更新",onDismiss={stage="idle"}) { download() }
         "download" -> DialogFrame(onDismiss={job?.cancel();stage="idle"}) {
-            DialogTitle("正在下载更新")
-            Text("${(progress*100).toInt()}%",Modifier.fillMaxWidth().padding(horizontal=24.dp,vertical=10.dp),fontSize=14.sp,color=Kongye.Text)
-            LinearProgressIndicator(progress={progress},modifier=Modifier.fillMaxWidth().padding(horizontal=24.dp),color=Kongye.Primary)
+            DialogTitle("正在下载 v${release?.version}")
+            DownloadBar(progress,release?.size ?: 0L)
             DialogButtons("取消",Kongye.Text2,onCancel=null) { job?.cancel();stage="idle" }
         }
         "ready" -> ConfirmDialog("安装更新","安装包已下载并校验。接下来由系统确认安装，现有文档会保留。","继续安装",onDismiss={stage="idle"}) { requestInstall() }

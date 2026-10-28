@@ -106,6 +106,12 @@ adb -s DEVICE_SERIAL shell am instrument -w -e only v213 com.kongye.docs.audit.t
 adb -s DEVICE_SERIAL shell am instrument -w -e only v214 com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
 ```
 
+菜单收藏 / 置顶图标、分享区高度和下载更新弹窗专项检查：
+
+```bash
+adb -s DEVICE_SERIAL shell am instrument -w -e only v215 com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+```
+
 ## 声明
 
 - 本项目仅用于学习 Android / Jetpack Compose 开发，不提供任何商业服务，也不会上架任何应用市场。
