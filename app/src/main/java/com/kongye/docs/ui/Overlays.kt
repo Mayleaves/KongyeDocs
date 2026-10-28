@@ -72,7 +72,7 @@ fun GlobalOverlays() {
             },
             SheetAction(KongyeIcons.Trash, "彻底删除", danger = true) { AppState.dialog = DialogRequest.Destroy(item) },
         ) else buildList {
-            add(SheetAction(KongyeIcons.Pin, if(item.pinned) "取消置顶" else "置顶") {
+            add(SheetAction(if (item.pinned) KongyeIcons.PinFilled else KongyeIcons.Pin, if (item.pinned) "取消置顶" else "置顶") {
                 Repository.togglePin(item.id)
                 Toast.done(if(item.pinned) "已取消置顶" else "已置顶")
             })

@@ -13,8 +13,8 @@
 
 ## 功能
 
-- **文档与文件夹**：新建、重命名、移动、收藏、置顶 / 取消置顶、删除；置顶优先于名称、类型、时间及手动排序，支持列表 / 缩略图标记并随备份保留；回收站保留至手动彻底删除
-- **整理**：长按多选，批量收藏 / 移动 / 删除；长按拖动调整顺序（手动排序）；按文件名、类型、创建时间、更新时间排序；列表 / 缩略图两种视图
+- **文档与文件夹**：新建、重命名、移动、收藏、置顶 / 取消置顶、删除；置顶优先于名称、类型、时间及手动排序，置顶项浅灰底、标题后带图钉，编辑页顶栏也有标记，并随备份保留；回收站保留至手动彻底删除
+- **整理**：长按多选，批量置顶 / 收藏 / 移动 / 删除；长按拖动调整顺序（手动排序），置顶项之间也可拖动换位；按文件名、类型、创建时间、更新时间排序；列表 / 缩略图两种视图
 - **我的**：顶部显示文件、文件夹和收藏数量，不计回收站内的条目；收藏与首页收藏列表采用相同范围
 - **首页**：「最近」「收藏」「创建」三栏，左右滑动切换
 - **搜索**：搜索标题、正文和评论，可按时间和类型筛选
@@ -94,10 +94,16 @@ adb -s DEVICE_SERIAL shell am instrument -w com.kongye.docs.audit.test/com.kongy
 adb -s DEVICE_SERIAL shell am instrument -w -e only cats com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
 ```
 
-本次置顶、分享区域和更新摘要专项检查：
+置顶、分享区域和更新摘要专项检查：
 
 ```bash
 adb -s DEVICE_SERIAL shell am instrument -w -e only v213 com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+```
+
+置顶样式、多选置顶、编辑页置顶标记和置顶项拖动换位专项检查：
+
+```bash
+adb -s DEVICE_SERIAL shell am instrument -w -e only v214 com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
 ```
 
 ## 声明

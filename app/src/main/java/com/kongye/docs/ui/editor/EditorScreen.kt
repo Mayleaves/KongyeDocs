@@ -363,12 +363,19 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                         fontSize = 12.sp, color = Kongye.Sub,
                     )
                     Row(Modifier.align(Alignment.CenterEnd)) {
+                        // 已置顶的文档在顶栏显示图钉，点一下取消置顶
+                        if (item?.pinned == true) {
+                            IconBtn(KongyeIcons.PinFilled, {
+                                Repository.togglePin(docId)
+                                Toast.done("已取消置顶")
+                            }, tint = Kongye.Ink2, size = 34.dp, iconSize = 20.dp, description = "已置顶")
+                        }
                         // 已收藏的文档在顶栏显示蓝色书签，点一下取消收藏
                         if (item?.starred == true) {
                             IconBtn(KongyeIcons.Bookmark, {
                                 Repository.toggleStar(docId)
                                 Toast.done("已取消收藏")
-                            }, tint = Kongye.Bookmark, iconSize = 20.dp, description = "已收藏")
+                            }, tint = Kongye.Bookmark, size = 34.dp, iconSize = 20.dp, description = "已收藏")
                         }
                         IconBtn(KongyeIcons.Share, { sheet = EdSheet.Share }, tint = Kongye.Ink2, description = "分享")
                         IconBtn(KongyeIcons.More, { finishEditing(); sheet = EdSheet.More }, tint = Kongye.Ink2, description = "更多")

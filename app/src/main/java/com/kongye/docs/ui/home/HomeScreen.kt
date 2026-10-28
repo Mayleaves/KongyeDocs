@@ -140,14 +140,22 @@ fun SelectionHeader(allIds: List<String>) {
     }
 }
 
-/** 多选时替换底部导航：收藏 / 移动 / 删除 */
+/** 多选时替换底部导航：置顶 / 收藏 / 移动 / 删除 */
 @Composable
 fun SelectionBar(selected: List<Item>) {
     val enabled = selected.isNotEmpty()
     val allStarred = enabled && selected.all { it.starred }
+    val allPinned = enabled && selected.all { it.pinned }
     Column(Modifier.fillMaxWidth().background(Kongye.Surface).navigationBarsPadding()) {
         HLine(color = Kongye.Divider)
         Row(Modifier.fillMaxWidth().height(56.dp)) {
+            BarAction(if (allPinned) KongyeIcons.PinFilled else KongyeIcons.Pin, if (allPinned) "取消置顶" else "置顶", enabled) {
+                // 按勾选的先后置顶：先勾的排在上面
+                val ids = AppState.selection.orEmpty().filter { id -> selected.any { it.id == id } }
+                Repository.setPinned(ids, !allPinned)
+                Toast.done(if (allPinned) "已取消置顶 ${selected.size} 项" else "已置顶 ${selected.size} 项")
+                AppState.endSelection()
+            }
             BarAction(if (allStarred) KongyeIcons.StarFilled else KongyeIcons.Star, if (allStarred) "取消收藏" else "收藏", enabled) {
                 selected.filter { it.starred == allStarred }.forEach { Repository.toggleStar(it.id) }
                 Toast.done(if (allStarred) "已取消收藏 ${selected.size} 项" else "已收藏 ${selected.size} 项")
@@ -216,6 +224,9 @@ fun sortItems(list: List<Item>, spec: SortSpec, manual: List<String> = emptyList
 
 fun updatedMeta(item: Item) = "${stampTime(item.updatedAt)} 更新"
 
+/** 网格视图左右的留白 */
+private val GRID_SIDE = 12.dp
+
 /** 一组条目（可带日期标题），每个条目附带一行时间说明 */
 class Section(val title: String?, val entries: List<Pair<Item, String>>)
 
@@ -223,6 +234,7 @@ class Section(val title: String?, val entries: List<Pair<Item, String>>)
  * 列表 / 网格两种展示方式。top 是排序栏等置顶内容，firstHeaderTrailing 显示在第一个日期标题右侧。
  * inset 参数让置顶内容在两种模式下都和左边距 20dp 对齐。
  * onReorder 不为 null 时（只有一组、不带日期标题），长按后拖动可以调整顺序，松手时回调新的完整顺序。
+ * 置顶项在任何列表里都可以长按拖动，只和其他置顶项换位；松手后保存为新的置顶顺序（各处共用），不改排序方式。
  */
 @Composable
 fun ItemCollection(
@@ -235,7 +247,14 @@ fun ItemCollection(
     onReorder: ((List<Item>) -> Unit)? = null,
 ) {
     val reorder = remember { ReorderState() }
-    val shown = reorder.order?.let { listOf(Section(null, it)) } ?: sections
+    // 拖动中按临时顺序显示；换位只发生在同一组内，各组条数不变，标题（如“置顶”、日期）留在原处
+    val shown = reorder.order?.let { order ->
+        if (order.size != sections.sumOf { it.entries.size }) listOf(Section(null, order))
+        else {
+            var next = 0
+            sections.map { s -> Section(s.title, order.subList(next, next + s.entries.size).also { next += s.entries.size }) }
+        }
+    } ?: sections
     val empty = shown.all { it.entries.isEmpty() }
     val useGrid = grid && !empty
     // 多选时点击是勾选 / 取消勾选；长按由下面容器上的手势处理
@@ -245,7 +264,7 @@ fun ItemCollection(
     val listState = rememberLazyListState()
     val gridState = rememberLazyGridState()
     val density = LocalDensity.current
-    val gridStart = with(density) { 14.dp.toPx() }
+    val gridStart = with(density) { GRID_SIDE.toPx() }
     val slots: () -> List<Slot> = {
         if (useGrid) gridState.layoutInfo.visibleItemsInfo.map {
             Slot(it.key, it.index, it.offset.toOffset() + Offset(gridStart, 0f), it.size.toSize())
@@ -272,7 +291,8 @@ fun ItemCollection(
     fun drop() {
         val order = reorder.order ?: return reorder.clear()
         reorder.release()
-        commit?.invoke(order.map { it.first })
+        if (order.any { it.first.id == reorder.id && it.first.pinned }) Repository.reorderPinned(order.filter { it.first.pinned }.map { it.first.id })
+        else commit?.invoke(order.map { it.first })
         // 松手后条目滑回它在新顺序里的位置
         scope.launch {
             val slot = slots().firstOrNull { it.key == reorder.id }
@@ -308,7 +328,7 @@ fun ItemCollection(
                     if (reorder.dragging) {
                         reorder.pointer = change.position
                         reorder.moveBy(if (useGrid) d else Offset(0f, d.y), slots(), useGrid, keepScroll)
-                    } else if (canDrag && entries.none { it.first.id == id && it.first.pinned }) {
+                    } else if (if (entries.any { it.first.id == id && it.first.pinned }) entries.count { it.first.pinned } > 1 else canDrag) {
                         moved += d
                         if (moved.getDistance() > viewConfiguration.touchSlop) {
                             // 长按后拖动：这次长按不算选择，改为拖动排序
@@ -348,13 +368,15 @@ fun ItemCollection(
             columns = GridCells.Fixed(2),
             modifier = Modifier.fillMaxSize().then(gestures),
             state = gridState,
-            contentPadding = PaddingValues(start = 14.dp, end = 6.dp, bottom = 96.dp),
+            // 左右留白相等、两列之间留 10dp：置顶卡片和多选高亮的灰底 / 蓝底不会贴在一起
+            contentPadding = PaddingValues(start = GRID_SIDE, end = GRID_SIDE, bottom = 96.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
-            if (top != null) item(key = "top", span = { GridItemSpan(maxLineSpan) }) { top(6.dp) }
+            if (top != null) item(key = "top", span = { GridItemSpan(maxLineSpan) }) { top(20.dp - GRID_SIDE) }
             shown.forEachIndexed { i, s ->
                 if (s.title != null) item(key = "h-${s.title}", span = { GridItemSpan(maxLineSpan) }) {
-                    DateHeader(s.title, 6.dp, if (i == 0) firstHeaderTrailing else null)
+                    DateHeader(s.title, 20.dp - GRID_SIDE, if (i == 0) firstHeaderTrailing else null)
                 }
                 items(s.entries, key = { it.first.id }) { (item, meta) ->
                     val lifted = reorder.id == item.id

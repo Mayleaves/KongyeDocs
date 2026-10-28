@@ -58,6 +58,8 @@ object Kongye {
     val Card get() = c(0xFFF7F7F7, 0xFF26272A)
     /** 输入框底色 */
     val Field get() = c(0xFFF5F5F5, 0xFF2A2B2E)
+    /** 置顶条目的底色：比页面略深一点的灰，像聊天列表里的置顶会话 */
+    val Pinned get() = c(0xFFF6F7F9, 0xFF242528)
     /** 次要图标（⋮ 等） */
     val Icon2 get() = c(0xFF9E9E9E, 0xFF7E7E7E)
     /** 浮层遮罩 */

@@ -64,8 +64,8 @@ internal class ReorderState {
         val to = order.indexOfFirst { it.first.id == target.key }
         // 上一次换位后布局还没更新时，屏幕上的前后关系和临时顺序对不上，等布局更新后再换
         if (from < 0 || to < 0 || (target.index > cur.index) != (to > from)) return
-        // Manual dragging cannot move a normal item above a fixed pin.
-        if(order[from].first.pinned || order[to].first.pinned) return
+        // 置顶项只和置顶项换位，普通项只和普通项换位：普通项不能越过置顶区，置顶项也不会混进普通项
+        if (order[from].first.pinned != order[to].first.pinned) return
         beforeSwap(cur, target)
         this.order = order.toMutableList().apply { add(to, removeAt(from)) }
     }

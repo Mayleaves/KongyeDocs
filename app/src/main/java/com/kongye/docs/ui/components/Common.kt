@@ -189,8 +189,9 @@ fun FileRow(
     /** 多选状态下不为 null：右侧显示勾选圈代替 ⋮ */
     selected: Boolean? = null,
 ) {
+    val pinned = item.pinned && item.deletedAt == null
     Row(
-        modifier.fillMaxWidth().height(70.dp).background(Kongye.Surface)
+        modifier.fillMaxWidth().height(70.dp).background(if (pinned) Kongye.Pinned else Kongye.Surface)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(start = 22.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -205,14 +206,17 @@ fun FileRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
-                Text(
-                    titleOverride ?: item.displayTitle,
-                    fontSize = 16.sp, color = Kongye.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                )
+                // 置顶：整行浅灰底，标题后面跟一枚小图钉
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        titleOverride ?: item.displayTitle, Modifier.weight(1f, fill = false),
+                        fontSize = 16.sp, color = Kongye.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    )
+                    if (pinned) PinnedMark(Modifier.padding(start = 5.dp))
+                }
                 Spacer(Modifier.height(4.dp))
                 Text(subtitle, fontSize = 13.sp, color = Kongye.Sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
-            if(item.pinned && item.deletedAt==null) { PinnedMark(); Spacer(Modifier.width(6.dp)) }
             if (selected != null) {
                 Box(Modifier.size(44.dp), contentAlignment = Alignment.Center) { SelectCircle(selected) }
                 Spacer(Modifier.width(8.dp))
@@ -268,23 +272,27 @@ fun FileCard(
     onLongClick: (() -> Unit)? = onMore,
     selected: Boolean? = null,
 ) {
+    val pinned = item.pinned && item.deletedAt == null
     Column(
         modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-            .background(if (selected == true) Kongye.PrimarySoft else Color.Transparent)
+            .background(if (selected == true) Kongye.PrimarySoft else if (pinned) Kongye.Pinned else Color.Transparent)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(start = 12.dp, top = 2.dp, bottom = 10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(meta, Modifier.weight(1f), fontSize = 12.sp, color = Kongye.Sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            if(item.pinned && item.deletedAt==null) PinnedMark()
             if (item.starred) BookmarkMark()
             if (selected != null) Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) { SelectCircle(selected, 19.dp) }
             else IconBtn(KongyeIcons.MoreV, onMore, tint = Kongye.Icon2, size = 34.dp, iconSize = 18.dp, description = "更多")
         }
-        Text(
-            item.displayTitle, Modifier.padding(end = 12.dp),
-            fontSize = 16.sp, color = Kongye.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
-        )
+        // 置顶：卡片浅灰底，标题后面跟一枚小图钉（与列表一致）
+        Row(Modifier.padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                item.displayTitle, Modifier.weight(1f, fill = false),
+                fontSize = 16.sp, color = Kongye.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            )
+            if (pinned) PinnedMark(Modifier.padding(start = 5.dp))
+        }
         Box(Modifier.fillMaxWidth().padding(end = 12.dp).height(156.dp), contentAlignment = Alignment.Center) {
             if (item.isFolder) {
                 FileIcon(true, 92.dp)
@@ -314,9 +322,10 @@ fun SectionLabel(text: String, modifier: Modifier = Modifier, trailing: @Composa
 
 // ---------------- 空状态 ----------------
 
+/** 已置顶的标记：斜放的实心小图钉，跟在标题后面 */
 @Composable
-fun PinnedMark() {
-    Icon(KongyeIcons.Pin,"已置顶",Modifier.size(15.dp),tint=Kongye.Sub)
+fun PinnedMark(modifier: Modifier = Modifier, size: Dp = 14.dp) {
+    Icon(KongyeIcons.PinFilled, "已置顶", modifier.size(size), tint = Kongye.Text3)
 }
 
 /** 已收藏的标记：蓝色书签，放在 ⋮ 左边 */

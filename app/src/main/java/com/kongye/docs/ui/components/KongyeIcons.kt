@@ -53,6 +53,21 @@ object KongyeIcons {
         return sb.append('Z').toString()
     }
 
+    /** 图钉：圆头帽、向下收窄的钉身，整体斜放 45°（钉帽在右上，钉尖朝左下） */
+    private const val PIN_BODY = "M8 2.8h8a.9.9 0 0 1 0 1.8h-1.5v4a3.8 3.8 0 0 0 2.2 3.4l.8.4v2H6.5v-2l.8-.4a3.8 3.8 0 0 0 2.2-3.4v-4H8a.9.9 0 0 1 0-1.8z"
+    private const val PIN_NEEDLE = "M12 14.4v6.3"
+
+    /** 空心图钉用在菜单里，实心图钉用作“已置顶”标记 */
+    private fun pin(name: String, filled: Boolean) = ImageVector.Builder(name, 24.dp, 24.dp, 24f, 24f).apply {
+        addGroup(rotate = 45f, pivotX = 12f, pivotY = 12f)
+        val line = { d: String, w: Float ->
+            addPath(addPathNodes(d), stroke = SolidColor(Color.Black), strokeLineWidth = w, strokeLineCap = StrokeCap.Round, strokeLineJoin = StrokeJoin.Round)
+        }
+        if (filled) addPath(addPathNodes(PIN_BODY), fill = SolidColor(Color.Black)) else line(PIN_BODY, 1.6f)
+        line(PIN_NEEDLE, 1.7f)
+        clearGroup()
+    }.build()
+
     private const val FOLDER ="M3.5 7.5a2 2 0 0 1 2-2h4l2 2.5h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"
     private const val STAR = "M12 3.8l2.5 5.1 5.6.8-4 3.9.9 5.6-5-2.6-5 2.6.9-5.6-4-3.9 5.6-.8z"
     private const val DOC = "M7 3.5h7l4.5 4.5v11a1.5 1.5 0 0 1-1.5 1.5H7a1.5 1.5 0 0 1-1.5-1.5V5A1.5 1.5 0 0 1 7 3.5z"
@@ -62,7 +77,8 @@ object KongyeIcons {
     val Folder = icon("folder") { s(FOLDER) }
     val FolderFilled = icon("folderFilled") { f(FOLDER); s(FOLDER) }
     val FolderPlus = icon("folderPlus") { s(FOLDER); s("M12 11v5M9.5 13.5h5") }
-    val Pin = icon("pin") { s("M9 3h6M10 3v5l-3 5v2h10v-2l-3-5V3M12 15v6") }
+    val Pin = pin("pin", filled = false)
+    val PinFilled = pin("pinFilled", filled = true)
     val Star = icon("star") { s(STAR) }
     val StarFilled = icon("starFilled") { f(STAR); s(STAR) }
     val User = icon("user") { s(circle(12f, 8.5f, 3.8f)); s("M4.5 20c.8-3.6 3.9-5.8 7.5-5.8s6.7 2.2 7.5 5.8") }

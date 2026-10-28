@@ -282,6 +282,47 @@ object Repository {
         it.copy(pinnedAt = if(it.pinned) 0L else System.currentTimeMillis().coerceAtLeast(1L))
     }
 
+    /**
+     * 多选后一起置顶 / 取消置顶，只保存一次。新置顶的排在已有置顶项之上，
+     * 彼此之间按 ids 的先后（先选的在上）。已经是目标状态的条目不变。
+     */
+    @Synchronized
+    fun setPinned(ids: List<String>, pinned: Boolean) {
+        val now = System.currentTimeMillis().coerceAtLeast(1L)
+        val rank = ids.withIndex().associate { it.value to it.index }
+        val next = _items.value.map { item ->
+            val i = rank[item.id]
+            when {
+                i == null || item.pinned == pinned -> item
+                pinned -> item.copy(pinnedAt = now + ids.size - i)
+                else -> item.copy(pinnedAt = 0L)
+            }
+        }
+        if (next == _items.value) return
+        writable()
+        _items.value = next
+        persistLibrary()
+    }
+
+    /**
+     * 拖动调整置顶项之间的顺序：ids 是这些置顶项的新顺序。
+     * 只在它们原有的置顶时间之间重新分配（大的在前），不在 ids 里的置顶项位置不变，也不影响手动排序。
+     */
+    @Synchronized
+    fun reorderPinned(ids: List<String>) {
+        val current = ids.distinct().mapNotNull { get(it) }.filter { it.pinned && it.deletedAt == null }
+        if (current.size < 2) return
+        val stamps = current.map { it.pinnedAt }.sortedDescending().toMutableList()
+        // 时间相同（同一刻置顶）时拉开 1 毫秒，保证新顺序稳定
+        for (i in 1 until stamps.size) if (stamps[i] >= stamps[i - 1]) stamps[i] = (stamps[i - 1] - 1).coerceAtLeast(1L)
+        val assigned = current.map { it.id }.zip(stamps).toMap()
+        val next = _items.value.map { item -> assigned[item.id]?.let { item.copy(pinnedAt = it) } ?: item }
+        if (next == _items.value) return
+        writable()
+        _items.value = next
+        persistLibrary()
+    }
+
     @Synchronized
     fun move(id: String, parentId: String?) {
         require(parentId == null || (get(parentId)?.isFolder == true && parentId != id && descendants(id).none { it.id == parentId })) { "不能移入自身或子文件夹" }
