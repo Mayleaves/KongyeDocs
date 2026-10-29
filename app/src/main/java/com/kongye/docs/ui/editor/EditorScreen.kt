@@ -131,7 +131,6 @@ private sealed interface EdSheet {
     data object Table : EdSheet
     data class Image(val b: BlockState) : EdSheet
     data class Divider(val b: BlockState) : EdSheet
-    data object Toolbar : EdSheet
 }
 
 private enum class EdDialog { LINK, DELETE, TEMPLATE }
@@ -390,6 +389,24 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
     LaunchedEffect(editor.commentView, editor.findMode) { if (editor.commentView != null || editor.findMode) tocOpen = false }
     BackHandler(enabled = tocOpen) { tocOpen = false }
 
+    fun toggleToolPanel(p: EdPanel) {
+        if(panel==p) {
+            // Keep the slot until the keyboard is fully back; the toolbar stays still.
+            returningToKeyboard=true
+            hidingKeyboardForPanel=false
+            keyboard?.show()
+        } else {
+            if(panel==null) {
+                val current=with(density) { imeInsets.getBottom(this).toDp() }-navBottom
+                if(current>160.dp) panelHeight=current
+            }
+            returningToKeyboard=false
+            hidingKeyboardForPanel=imeVisible
+            panel=p
+            keyboard?.hide()
+        }
+    }
+
     Column(Modifier.fillMaxSize().background(Kongye.Surface)) {
         // ---------- 顶栏 ----------
         if (editor.findMode) {
@@ -528,23 +545,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
             } else EditorToolbar(
                 editor = editor,
                 panel = panel,
-                onPanel = { p ->
-                    if(panel==p) {
-                        // Keep the slot until the keyboard is fully back; the toolbar stays still.
-                        returningToKeyboard=true
-                        hidingKeyboardForPanel=false
-                        keyboard?.show()
-                    } else {
-                        if(panel==null) {
-                            val current=with(density) { imeInsets.getBottom(this).toDp() }-navBottom
-                            if(current>160.dp) panelHeight=current
-                        }
-                        returningToKeyboard=false
-                        hidingKeyboardForPanel=imeVisible
-                        panel=p
-                        keyboard?.hide()
-                    }
-                },
+                onPanel = ::toggleToolPanel,
                 onUndo = { editor.undo(imeVisible) },
                 onRedo = { editor.redo(imeVisible) },
                 onComment = {
@@ -560,10 +561,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                 },
                 onTableMenu = { sheet = EdSheet.Table },
                 onHideKeyboard = ::finishEditing,
-                onCustomize = {
-                    finishEditing()
-                    sheet = EdSheet.Toolbar
-                },
+                onCustomize = { toggleToolPanel(EdPanel.CUSTOMIZE) },
             )
             EditorInputDock(panel,panelHeight) {
                 // During comment handoff keep the space, without leaving old tools interactive.
@@ -571,6 +569,11 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                     when (panel) {
                         EdPanel.STYLE -> StylePanel(editor, panelHeight)
                         EdPanel.PARAGRAPH -> ParagraphPanel(editor, panelHeight)
+                        EdPanel.CUSTOMIZE -> ToolbarOrderPanel(panelHeight) {
+                            returningToKeyboard=true
+                            hidingKeyboardForPanel=false
+                            keyboard?.show()
+                        }
                         EdPanel.INSERT -> InsertPanel(
                             editor, panelHeight,
                             onImage = {
@@ -670,7 +673,6 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                 SheetAction(KongyeIcons.Trash, "删除图片", danger = true) { editor.deleteBlock(s.b) },
             ),
         )
-        EdSheet.Toolbar -> ToolbarOrderSheet { sheet = null }
         is EdSheet.Divider -> ActionSheet(
             onDismiss = { sheet = null },
             actions = listOf(SheetAction(KongyeIcons.Trash, "删除分割线", danger = true) { editor.deleteBlock(s.b) }),

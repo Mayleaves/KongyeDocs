@@ -2,6 +2,8 @@ package com.kongye.docs.ui.editor
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -32,6 +34,7 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
@@ -50,6 +53,19 @@ private val rowHeight = 50.dp
  */
 @Composable
 fun ToolbarOrderSheet(onDismiss: () -> Unit) {
+    BottomSheet(onDismiss,dragToDismiss=false) { dismiss ->
+        ToolbarOrderContent(onDone={ dismiss {} })
+    }
+}
+
+/** Editor customization occupies the same space as the other keyboard tools. */
+@Composable
+fun ToolbarOrderPanel(height: Dp,onDone: ()->Unit) {
+    ToolbarOrderContent(Modifier.height(height),embedded=true,onDone=onDone)
+}
+
+@Composable
+private fun ToolbarOrderContent(modifier: Modifier=Modifier,embedded: Boolean=false,onDone: ()->Unit) {
     var order by remember { mutableStateOf(Tool.ordered(Repository.toolbar.value)) }
     var dragging by remember { mutableStateOf<Tool?>(null) }
     var offset by remember { mutableFloatStateOf(0f) }
@@ -57,7 +73,7 @@ fun ToolbarOrderSheet(onDismiss: () -> Unit) {
 
     fun save() = Repository.setToolbar(order.map { it.name })
 
-    BottomSheet(onDismiss, dragToDismiss = false) { dismiss ->
+    Column(modifier.fillMaxWidth().background(Kongye.Surface)) {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("自定义工具栏", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Kongye.Ink)
@@ -75,7 +91,7 @@ fun ToolbarOrderSheet(onDismiss: () -> Unit) {
             )
         }
         HLine(color = Kongye.Divider)
-        Column(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().then(if(embedded) Modifier.weight(1f).verticalScroll(rememberScrollState()) else Modifier)) {
             order.forEach { tool ->
                 key(tool) {
                     val active = dragging == tool
@@ -126,7 +142,7 @@ fun ToolbarOrderSheet(onDismiss: () -> Unit) {
                             },
                             contentAlignment = Alignment.Center,
                         ) {
-                            Icon(KongyeIcons.DragHandle, "拖动调整顺序", Modifier.size(22.dp), tint = Kongye.Icon2)
+                            Icon(KongyeIcons.DragHandle, "拖动${tool.label}", Modifier.size(22.dp), tint = Kongye.Icon2)
                         }
                     }
                 }
@@ -134,7 +150,7 @@ fun ToolbarOrderSheet(onDismiss: () -> Unit) {
         }
         HLine(color = Kongye.Divider)
         Box(
-            Modifier.fillMaxWidth().height(54.dp).clickable { dismiss {} }.navigationBarsPadding(),
+            Modifier.fillMaxWidth().height(54.dp).clickable(onClick=onDone).then(if(embedded) Modifier else Modifier.navigationBarsPadding()),
             contentAlignment = Alignment.Center,
         ) { Text("完成", fontSize = 16.sp, color = Kongye.Ink) }
     }

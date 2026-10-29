@@ -49,7 +49,7 @@ import com.kongye.docs.ui.components.KongyeIcons
 import com.kongye.docs.ui.theme.Kongye
 
 /** 工具栏按钮展开的二级面板，显示在键盘的位置 */
-enum class EdPanel { STYLE, PARAGRAPH, INSERT }
+enum class EdPanel { STYLE, PARAGRAPH, INSERT, CUSTOMIZE }
 
 /**
  * 键盘上方工具栏里可以调整顺序的工具（默认顺序即枚举顺序）。
@@ -104,7 +104,7 @@ fun EditorToolbar(
                     }
                 }
                 // 最后一个：自定义工具栏顺序
-                TbBtn(KongyeIcons.Tune, onClick = onCustomize)
+                TbBtn(KongyeIcons.Tune, active = panel == EdPanel.CUSTOMIZE, description = "自定义工具栏", onClick = onCustomize)
             }
             if (editor.focusedCell != null) TbBtn(KongyeIcons.TableEdit, active = true, onClick = onTableMenu)
             Box(Modifier.width(0.6.dp).height(22.dp).background(Kongye.Line2))
@@ -114,14 +114,14 @@ fun EditorToolbar(
 }
 
 @Composable
-private fun TbBtn(icon: ImageVector, active: Boolean = false, enabled: Boolean = true, onClick: () -> Unit) {
+private fun TbBtn(icon: ImageVector, active: Boolean = false, enabled: Boolean = true, description: String? = null, onClick: () -> Unit) {
     Box(
         Modifier.size(44.dp).padding(2.dp).clip(RoundedCornerShape(8.dp))
             .background(if (active) Kongye.PrimarySoft else Color.Transparent)
             .clickable(enabled = enabled, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, null, Modifier.size(22.dp), tint = when { !enabled -> Kongye.Text4; active -> Kongye.Primary; else -> Kongye.Text })
+        Icon(icon, description, Modifier.size(22.dp), tint = when { !enabled -> Kongye.Text4; active -> Kongye.Primary; else -> Kongye.Text })
     }
 }
 
