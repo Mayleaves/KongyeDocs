@@ -182,11 +182,12 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
     val configuration=LocalConfiguration.current
     var panelHeight by remember(configuration.screenWidthDp,configuration.screenHeightDp) { mutableStateOf(300.dp) }
     var returningToKeyboard by remember { mutableStateOf(false) }
+    var commentInputFocused by remember { mutableStateOf(false) }
     var hidingKeyboardForPanel by remember { mutableStateOf(false) }
     val docTitle = editor.title.text.ifBlank { "无标题" }
 
     // Keep the last settled height, rather than the largest keyboard ever seen.
-    LaunchedEffect(imeBottom,imeVisible,panel,returningToKeyboard) {
+    LaunchedEffect(imeBottom,imeVisible,panel,returningToKeyboard,editor.commentDraft,commentInputFocused) {
         if(!imeVisible) hidingKeyboardForPanel=false
         val height=imeBottom-navBottom
         if(imeVisible && height>160.dp) {
@@ -195,8 +196,11 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                 panelHeight=height
                 EditorSession.keyboardHeight=height
             } else if(returningToKeyboard || !hidingKeyboardForPanel) {
-                // The tool slot remains reserved until the returning IME has filled it.
-                if(height<panelHeight-2.dp) delay(240)
+                // A comment field must own the input session before releasing a tool slot.
+                if(editor.commentDraft!=null) {
+                    if(!commentInputFocused) return@LaunchedEffect
+                    delay(180)
+                } else if(height<panelHeight-2.dp) delay(240)
                 panel=null
                 returningToKeyboard=false
                 hidingKeyboardForPanel=false
@@ -490,8 +494,6 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
         // ---------- 底部：查找替换栏 / 评论输入 / 评论面板 / 工具栏及其二级面板 ----------
         if (editor.findMode) {
             SoftPanel { FindBottomBar(editor) }
-        } else if (editor.commentDraft != null) {
-            SoftPanel { CommentComposer(editor, onCancel = ::cancelCommentDraft) { finishEditing() } }
         } else if (editor.commentView != null) {
             SoftPanel { CommentPanel(editor, if (imeVisible) commentPanelSmall else commentPanelLarge) }
         } else if (infoOpen) {
@@ -516,8 +518,14 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                 scope.launch { scroll.animateScrollTo(((blockTops[h.id] ?: 0) - 24 * density.density).toInt().coerceAtLeast(0)) }
             }
             }
-        } else if (toolbarVisible) {
-            EditorToolbar(
+        } else if (editor.commentDraft!=null || toolbarVisible) {
+            if(editor.commentDraft!=null) {
+                // Replace only the bar; the shared IME/tool slot below stays measured.
+                CommentComposer(editor,onCancel=::cancelCommentDraft,onFocused={
+                    commentInputFocused=true
+                    keyboard?.show()
+                }) { finishEditing() }
+            } else EditorToolbar(
                 editor = editor,
                 panel = panel,
                 onPanel = { p ->
@@ -541,7 +549,14 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                 onRedo = { editor.redo(imeVisible) },
                 onComment = {
                     val why = editor.startComment()
-                    if (why != null) Toast.show(why) else panel = null
+                    if(why!=null) Toast.show(why) else {
+                        commentInputFocused=false
+                        if(panel!=null) {
+                            // Keep the previous panel's space until the comment IME fills it.
+                            returningToKeyboard=true
+                            hidingKeyboardForPanel=false
+                        }
+                    }
                 },
                 onTableMenu = { sheet = EdSheet.Table },
                 onHideKeyboard = ::finishEditing,
@@ -551,8 +566,8 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                 },
             )
             EditorInputDock(panel,panelHeight) {
-                // Replace the keyboard in one fixed slot; switching tools only replaces content.
-                run {
+                // During comment handoff keep the space, without leaving old tools interactive.
+                if(editor.commentDraft==null) {
                     when (panel) {
                         EdPanel.STYLE -> StylePanel(editor, panelHeight)
                         EdPanel.PARAGRAPH -> ParagraphPanel(editor, panelHeight)
@@ -581,7 +596,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                 }
             }
         }
-        if(!toolbarVisible || editor.findMode || editor.commentDraft!=null || editor.commentView!=null || infoOpen || tocOpen) {
+        if((!toolbarVisible && editor.commentDraft==null) || editor.findMode || editor.commentView!=null || infoOpen || tocOpen) {
             Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.ime.union(WindowInsets.navigationBars)))
         }
     }

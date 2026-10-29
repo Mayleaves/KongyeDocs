@@ -21,7 +21,7 @@
 - **编辑器**：标题、有序 / 无序列表、待办、引用、代码块、分割线、图片、表格、链接；加粗、斜体、下划线、删除线、文字颜色、背景高亮；段落首行缩进；正文跨段选择、输入法全选（只选正文，不包含文档标题）；撤销 / 重做保持键盘展开；二级工具菜单替换键盘区域，工具栏位置和高度保持不变，面板之间切换保持展开；工具栏顺序可自定义
 - **更新提示**：“我的 → 关于”检查 GitHub 正式 Release，发现新版本时最多显示三条重点；构建和校验细节保留在 GitHub，下载、校验与系统确认安装流程保持不变
 - **Markdown 快捷输入**：`#`、`-`、`1.`、`[]`、`>`、```` ``` ````、`---` 加空格即可转换
-- **评论**：选中文字添加评论，可回复、结束评论，查看全部评论；取消添加时直接恢复编辑工具栏，键盘保持展开，可立即继续编辑正文
+- **评论**：选中文字添加评论，可回复、结束评论，查看全部评论；从文字样式、段落或插入工具直接切评论时共用键盘区域，避免先收回再展开；取消添加时直接恢复编辑工具栏，键盘保持展开，可立即继续编辑正文
 - **文档工具**：查看目录、查找替换、文档信息
 - **本地版本**：系统自动备份默认开启；编辑有变化且距上次本地版本记录超过 10 分钟时记录新版本，也可手动保存。所选版本与当前编辑正文比较：绿色为本地版本新增，红色删除线为本地版本删除；支持原文预览、恢复、生成副本和删除
 - **分享**：分享为长图、文字或 Markdown；自定义图片落款；下载记录
@@ -125,6 +125,12 @@ adb -s DEVICE_SERIAL shell am instrument -w -e only dock com.kongye.docs.docktes
 
 ```bash
 adb -s DEVICE_SERIAL shell am instrument -w -e only v217 com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+```
+
+工具直接切评论及相关键盘回归（同上面的独立键盘测试包，共 13 项）：
+
+```bash
+adb -s DEVICE_SERIAL shell am instrument -w -e only comment-handoff com.kongye.docs.docktest.test/com.kongye.docs.RegressionInstrumentation
 ```
 
 ## 声明

@@ -32,6 +32,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -142,7 +143,7 @@ fun CommentBadge(count: Int, active: Boolean, modifier: Modifier = Modifier, onC
 
 /** 灰底的“添加评论…”输入框，右侧“发送”；onCancel 不为 null 时左侧多一个“取消” */
 @Composable
-fun CommentInput(autoFocus: Boolean, onCancel: (() -> Unit)? = null, onSend: (String) -> Unit) {
+fun CommentInput(autoFocus: Boolean, onCancel: (() -> Unit)? = null, onFocused: () -> Unit = {}, onSend: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
     val focus = remember { FocusRequester() }
     Row(
@@ -165,7 +166,7 @@ fun CommentInput(autoFocus: Boolean, onCancel: (() -> Unit)? = null, onSend: (St
                 value = text, onValueChange = { text = it }, maxLines = 4,
                 textStyle = TextStyle(fontSize = 15.sp, color = Kongye.Ink, lineHeight = 21.sp),
                 cursorBrush = SolidColor(Kongye.Primary),
-                modifier = Modifier.weight(1f).padding(vertical = 11.dp).focusRequester(focus),
+                modifier = Modifier.weight(1f).padding(vertical = 11.dp).focusRequester(focus).onFocusChanged { if(it.isFocused) onFocused() },
                 decorationBox = { inner ->
                     Box {
                         if (text.isEmpty()) Text("添加评论…", fontSize = 15.sp, color = Kongye.Text4)
@@ -191,10 +192,10 @@ fun CommentInput(autoFocus: Boolean, onCancel: (() -> Unit)? = null, onSend: (St
 
 /** 选中文字后点“评论”：键盘上方出现输入框，发送后这段文字挂上评论；“取消”放弃这条评论、回到原段落继续编辑 */
 @Composable
-fun CommentComposer(editor: EditorState, onCancel: () -> Unit, onDone: () -> Unit) {
+fun CommentComposer(editor: EditorState, onCancel: () -> Unit, onFocused: () -> Unit = {}, onDone: () -> Unit) {
     Column(Modifier.fillMaxWidth().background(Kongye.Surface)) {
         HLine()
-        CommentInput(autoFocus = true, onCancel = onCancel) {
+        CommentInput(autoFocus = true, onCancel = onCancel, onFocused = onFocused) {
             editor.submitDraft(it)
             onDone()
         }
