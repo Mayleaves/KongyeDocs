@@ -18,7 +18,7 @@
 - **我的**：顶部显示文件、文件夹和收藏数量，不计回收站内的条目；收藏与首页收藏列表采用相同范围
 - **首页**：「最近」「收藏」「创建」三栏，左右滑动切换
 - **搜索**：搜索标题、正文和评论，可按时间和类型筛选
-- **编辑器**：标题、有序 / 无序列表、待办、引用、代码块、分割线、图片、表格、链接；加粗、斜体、下划线、删除线、文字颜色、背景高亮；段落首行缩进；正文跨段选择、输入法全选（只选正文，不包含文档标题）；撤销 / 重做保持键盘展开；工具面板切换保持展开；工具栏顺序可自定义
+- **编辑器**：标题、有序 / 无序列表、待办、引用、代码块、分割线、图片、表格、链接；加粗、斜体、下划线、删除线、文字颜色、背景高亮；段落首行缩进；正文跨段选择、输入法全选（只选正文，不包含文档标题）；撤销 / 重做保持键盘展开；二级工具菜单替换键盘区域，工具栏位置和高度保持不变，面板之间切换保持展开；工具栏顺序可自定义
 - **更新提示**：“我的 → 关于”检查 GitHub 正式 Release，发现新版本时最多显示三条重点；构建和校验细节保留在 GitHub，下载、校验与系统确认安装流程保持不变
 - **Markdown 快捷输入**：`#`、`-`、`1.`、`[]`、`>`、```` ``` ````、`---` 加空格即可转换
 - **评论**：选中文字添加评论，可回复、结束评论，查看全部评论
@@ -110,6 +110,15 @@ adb -s DEVICE_SERIAL shell am instrument -w -e only v214 com.kongye.docs.audit.t
 
 ```bash
 adb -s DEVICE_SERIAL shell am instrument -w -e only v215 com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+```
+
+键盘与工具面板替换的真机专项检查（独立包名 `com.kongye.docs.docktest`，与现有测试 / 正式应用分开）：
+
+```bash
+./gradlew -PeditorDockTest=true assembleDebug assembleDebugAndroidTest
+adb -s DEVICE_SERIAL install -r app/build/outputs/apk/debug/app-debug.apk
+adb -s DEVICE_SERIAL install -r -t app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+adb -s DEVICE_SERIAL shell am instrument -w -e only dock com.kongye.docs.docktest.test/com.kongye.docs.RegressionInstrumentation
 ```
 
 ## 声明

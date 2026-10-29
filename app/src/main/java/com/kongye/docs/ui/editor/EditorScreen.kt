@@ -173,20 +173,38 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
     var sheet by remember { mutableStateOf<EdSheet?>(null) }
     var dialog by remember { mutableStateOf<EdDialog?>(null) }
     val blockTops = remember { mutableStateMapOf<String, Int>() }
+    val imeInsets = WindowInsets.ime
     val imeVisible = WindowInsets.isImeVisible
     val imeBottom = WindowInsets.ime.asPaddingValues().calculateBottomPadding()
     val navBottom = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val toolbarVisible = !editor.findMode && (editor.selection.active || editor.focusedId != null || editor.focusedCell != null)
     val editing = toolbarVisible || titleFocused
-    val panelHeight = EditorSession.keyboardHeight.takeIf { it > 160.dp } ?: 300.dp
+    val configuration=LocalConfiguration.current
+    var panelHeight by remember(configuration.screenWidthDp,configuration.screenHeightDp) { mutableStateOf(300.dp) }
+    var returningToKeyboard by remember { mutableStateOf(false) }
+    var hidingKeyboardForPanel by remember { mutableStateOf(false) }
     val docTitle = editor.title.text.ifBlank { "无标题" }
 
-    // 记录键盘完全展开时的高度，样式面板用同样的高度替代键盘
-    LaunchedEffect(imeBottom) {
-        val h = imeBottom - navBottom
-        if (h > EditorSession.keyboardHeight) EditorSession.keyboardHeight = h
+    // Keep the last settled height, rather than the largest keyboard ever seen.
+    LaunchedEffect(imeBottom,imeVisible,panel,returningToKeyboard) {
+        if(!imeVisible) hidingKeyboardForPanel=false
+        val height=imeBottom-navBottom
+        if(imeVisible && height>160.dp) {
+            if(panel==null) {
+                delay(180)
+                panelHeight=height
+                EditorSession.keyboardHeight=height
+            } else if(returningToKeyboard || !hidingKeyboardForPanel) {
+                // The tool slot remains reserved until the returning IME has filled it.
+                if(height<panelHeight-2.dp) delay(240)
+                panel=null
+                returningToKeyboard=false
+                hidingKeyboardForPanel=false
+                panelHeight=height
+                EditorSession.keyboardHeight=height
+            }
+        }
     }
-    LaunchedEffect(imeVisible) { if (imeVisible) panel = null }
 
     // 自动保存
     LaunchedEffect(editor.version) {
@@ -225,7 +243,10 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
             withFrameNanos { }
             runCatching { titleFocus.requestFocus() }
         }
-        if(pf.showKeyboard) keyboard?.show()
+        if(pf.showKeyboard) {
+            if(panel!=null) returningToKeyboard=true
+            keyboard?.show()
+        }
         editor.pendingFocus = null
     }
 
@@ -484,12 +505,19 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                 editor = editor,
                 panel = panel,
                 onPanel = { p ->
-                    // 再点一次同一个按钮：收起面板，回到键盘
-                    if (panel == p) {
-                        panel = null
+                    if(panel==p) {
+                        // Keep the slot until the keyboard is fully back; the toolbar stays still.
+                        returningToKeyboard=true
+                        hidingKeyboardForPanel=false
                         keyboard?.show()
                     } else {
-                        panel = p
+                        if(panel==null) {
+                            val current=with(density) { imeInsets.getBottom(this).toDp() }-navBottom
+                            if(current>160.dp) panelHeight=current
+                        }
+                        returningToKeyboard=false
+                        hidingKeyboardForPanel=imeVisible
+                        panel=p
                         keyboard?.hide()
                     }
                 },
@@ -506,10 +534,9 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                     sheet = EdSheet.Toolbar
                 },
             )
-            if (!imeVisible && panel != null) {
-                // One opening animation belongs to the expanded tool area, not to
-                // each tool. Switching its contents retains the current height.
-                SoftPanel {
+            EditorInputDock(panel,panelHeight) {
+                // Replace the keyboard in one fixed slot; switching tools only replaces content.
+                run {
                     when (panel) {
                         EdPanel.STYLE -> StylePanel(editor, panelHeight)
                         EdPanel.PARAGRAPH -> ParagraphPanel(editor, panelHeight)
@@ -528,7 +555,8 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                                 dialog = EdDialog.LINK
                             },
                             onDone = {
-                                panel = null
+                                returningToKeyboard=true
+                                hidingKeyboardForPanel=false
                                 keyboard?.show()
                             },
                         )
@@ -537,7 +565,9 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                 }
             }
         }
-        Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.ime.union(WindowInsets.navigationBars)))
+        if(!toolbarVisible || editor.findMode || editor.commentDraft!=null || editor.commentView!=null || infoOpen || tocOpen) {
+            Spacer(Modifier.windowInsetsBottomHeight(WindowInsets.ime.union(WindowInsets.navigationBars)))
+        }
     }
 
     // ---------- 面板 ----------

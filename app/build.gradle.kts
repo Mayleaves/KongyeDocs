@@ -4,6 +4,7 @@ plugins {
     id("org.jetbrains.kotlin.plugin.serialization")
 }
 
+val editorDockTest = providers.gradleProperty("editorDockTest").orNull == "true"
 val updateFixture = providers.gradleProperty("updateFixture").orNull == "true"
 if (updateFixture && gradle.startParameter.taskNames.any { it.contains("release",ignoreCase = true) }) error("Update fixture is debug-only")
 
@@ -15,16 +16,16 @@ android {
         applicationId = "com.kongye.docs"
         minSdk = 26
         targetSdk = 36
-        versionCode = if (updateFixture) providers.gradleProperty("fixtureCode").get().toInt() else 26
-        versionName = if (updateFixture) providers.gradleProperty("fixtureVersion").get() else "2.15"
+        versionCode = if (updateFixture) providers.gradleProperty("fixtureCode").get().toInt() else 27
+        versionName = if (updateFixture) providers.gradleProperty("fixtureVersion").get() else "2.16"
         testInstrumentationRunner = "com.kongye.docs.RegressionInstrumentation"
         manifestPlaceholders["appLabel"] = "空叶文档"
     }
 
     buildTypes {
         debug {
-            applicationIdSuffix = if (updateFixture) ".upgradefixture" else ".audit"
-            manifestPlaceholders["appLabel"] = if (updateFixture) "空叶文档更新测试" else "空叶文档测试"
+            applicationIdSuffix = if (updateFixture) ".upgradefixture" else if(editorDockTest) ".docktest" else ".audit"
+            manifestPlaceholders["appLabel"] = if (updateFixture) "空叶文档更新测试" else if(editorDockTest) "空叶文档键盘测试" else "空叶文档测试"
         }
         release {
             isMinifyEnabled = true

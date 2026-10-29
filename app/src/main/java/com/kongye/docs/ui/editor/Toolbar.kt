@@ -26,6 +26,8 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -84,7 +86,7 @@ fun EditorToolbar(
 ) {
     val b = editor.focused
     val order by Repository.toolbar.collectAsState()
-    Column(Modifier.fillMaxWidth().background(Kongye.Surface)) {
+    Column(Modifier.fillMaxWidth().background(Kongye.Surface).semantics { contentDescription="编辑工具栏" }) {
         HLine()
         Row(Modifier.fillMaxWidth().height(48.dp), verticalAlignment = Alignment.CenterVertically) {
             Row(
