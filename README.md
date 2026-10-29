@@ -121,6 +121,12 @@ adb -s DEVICE_SERIAL install -r -t app/build/outputs/apk/androidTest/debug/app-d
 adb -s DEVICE_SERIAL shell am instrument -w -e only dock com.kongye.docs.docktest.test/com.kongye.docs.RegressionInstrumentation
 ```
 
+添加评论栏「取消」及发送专项检查：
+
+```bash
+adb -s DEVICE_SERIAL shell am instrument -w -e only v217 com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+```
+
 ## 声明
 
 - 本项目仅用于学习 Android / Jetpack Compose 开发，不提供任何商业服务，也不会上架任何应用市场。

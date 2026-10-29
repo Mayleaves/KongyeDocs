@@ -288,12 +288,13 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
         // 从全部评论点进某一条时，返回键先回到全部评论
         editor.commentView = if (editor.commentView?.fromAll == true) EditorState.CommentView(null) else null
     }
-    BackHandler(enabled = editor.commentDraft != null) {
-        // 放弃这条评论，回到原来的段落继续编辑
-        val d = editor.commentDraft
+    // 放弃这条评论，回到原来的段落继续编辑（返回键和评论栏的“取消”都走这里）
+    fun cancelCommentDraft() {
+        val d = editor.commentDraft ?: return
         editor.commentDraft = null
-        editor.blocks.firstOrNull { it.id == d?.blockId }?.let { editor.requestFocus(it, d!!.end) }
+        editor.blocks.firstOrNull { it.id == d.blockId }?.let { editor.requestFocus(it, d.end) }
     }
+    BackHandler(enabled = editor.commentDraft != null) { cancelCommentDraft() }
 
     fun finishEditing() {
         panel = null
@@ -475,7 +476,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
         if (editor.findMode) {
             SoftPanel { FindBottomBar(editor) }
         } else if (editor.commentDraft != null) {
-            SoftPanel { CommentComposer(editor) { finishEditing() } }
+            SoftPanel { CommentComposer(editor, onCancel = ::cancelCommentDraft) { finishEditing() } }
         } else if (editor.commentView != null) {
             SoftPanel { CommentPanel(editor, if (imeVisible) commentPanelSmall else commentPanelLarge) }
         } else if (infoOpen) {

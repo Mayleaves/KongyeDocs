@@ -21,7 +21,8 @@ class RegressionInstrumentation : Instrumentation() {
     private var onlyV214=false
     private var onlyDock=false
     private var onlyV215=false
-    override fun onCreate(arguments: Bundle?) { onlyDock=arguments?.getString("only")=="dock"; onlyV215=arguments?.getString("only")=="v215"; onlyV214=arguments?.getString("only")=="v214"; onlyV213=arguments?.getString("only")=="v213"; onlyCats=arguments?.getString("only")=="cats"; editorModels=arguments?.getString("only")=="editor-models"; if(arguments?.getString("only")=="verify-backups") verifyPaths=arguments.getString("before")!! to arguments.getString("after")!!; manualKeyboard=arguments?.getString("only")=="keyboard"; onlyUi=arguments?.getString("only")=="ui"; onlyEditor=arguments?.getString("only")=="editor"; super.onCreate(arguments); start() }
+    private var onlyV217=false
+    override fun onCreate(arguments: Bundle?) { onlyV217=arguments?.getString("only")=="v217"; onlyDock=arguments?.getString("only")=="dock"; onlyV215=arguments?.getString("only")=="v215"; onlyV214=arguments?.getString("only")=="v214"; onlyV213=arguments?.getString("only")=="v213"; onlyCats=arguments?.getString("only")=="cats"; editorModels=arguments?.getString("only")=="editor-models"; if(arguments?.getString("only")=="verify-backups") verifyPaths=arguments.getString("before")!! to arguments.getString("after")!!; manualKeyboard=arguments?.getString("only")=="keyboard"; onlyUi=arguments?.getString("only")=="ui"; onlyEditor=arguments?.getString("only")=="editor"; super.onCreate(arguments); start() }
     private fun report(code: Int,bundle: Bundle) {
         File(targetContext.cacheDir,"regression-progress.txt").appendText(bundle.getString("stream").orEmpty())
         sendStatus(code,bundle)
@@ -50,6 +51,11 @@ class RegressionInstrumentation : Instrumentation() {
                     files.forEach { it.delete() }
                     runOnMainSync { activity.finish() }
                 }
+                return
+            }
+            if(onlyV217) {
+                V217Regression.run(this,targetContext) { name -> passed++; report(0,Bundle().apply { putString("stream","PASS $name\n") }) }
+                finish(Activity.RESULT_OK,Bundle().apply { putString("stream","ALL $passed V2.17 TESTS PASSED\n") })
                 return
             }
             if(onlyDock) {

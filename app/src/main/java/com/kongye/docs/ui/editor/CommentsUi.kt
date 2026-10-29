@@ -140,36 +140,48 @@ fun CommentBadge(count: Int, active: Boolean, modifier: Modifier = Modifier, onC
 
 // ---------------- 输入框 ----------------
 
-/** 灰底的“添加评论…”输入框，右侧“发送” */
+/** 灰底的“添加评论…”输入框，右侧“发送”；onCancel 不为 null 时左侧多一个“取消” */
 @Composable
-fun CommentInput(autoFocus: Boolean, onSend: (String) -> Unit) {
+fun CommentInput(autoFocus: Boolean, onCancel: (() -> Unit)? = null, onSend: (String) -> Unit) {
     var text by remember { mutableStateOf("") }
     val focus = remember { FocusRequester() }
     Row(
-        Modifier.fillMaxWidth().background(Kongye.Surface).padding(horizontal = 16.dp, vertical = 10.dp)
-            .heightIn(min = 44.dp).clip(RoundedCornerShape(6.dp)).background(Kongye.Field).padding(start = 14.dp),
+        Modifier.fillMaxWidth().background(Kongye.Surface).padding(start = if (onCancel != null) 8.dp else 16.dp, end = 16.dp, top = 10.dp, bottom = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BasicTextField(
-            value = text, onValueChange = { text = it }, maxLines = 4,
-            textStyle = TextStyle(fontSize = 15.sp, color = Kongye.Ink, lineHeight = 21.sp),
-            cursorBrush = SolidColor(Kongye.Primary),
-            modifier = Modifier.weight(1f).padding(vertical = 11.dp).focusRequester(focus),
-            decorationBox = { inner ->
-                Box {
-                    if (text.isEmpty()) Text("添加评论…", fontSize = 15.sp, color = Kongye.Text4)
-                    inner()
-                }
-            },
-        )
-        Text(
-            "发送",
-            Modifier.clickable(enabled = text.isNotBlank()) {
-                onSend(text)
-                text = ""
-            }.padding(horizontal = 14.dp, vertical = 11.dp),
-            fontSize = 15.sp, color = if (text.isBlank()) Kongye.Text4 else Kongye.Primary,
-        )
+        if (onCancel != null) {
+            Text(
+                "取消",
+                Modifier.clip(RoundedCornerShape(6.dp)).clickable(onClick = onCancel).padding(horizontal = 8.dp, vertical = 11.dp),
+                fontSize = 15.sp, color = Kongye.Text2,
+            )
+            Spacer(Modifier.width(6.dp))
+        }
+        Row(
+            Modifier.weight(1f).heightIn(min = 44.dp).clip(RoundedCornerShape(6.dp)).background(Kongye.Field).padding(start = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            BasicTextField(
+                value = text, onValueChange = { text = it }, maxLines = 4,
+                textStyle = TextStyle(fontSize = 15.sp, color = Kongye.Ink, lineHeight = 21.sp),
+                cursorBrush = SolidColor(Kongye.Primary),
+                modifier = Modifier.weight(1f).padding(vertical = 11.dp).focusRequester(focus),
+                decorationBox = { inner ->
+                    Box {
+                        if (text.isEmpty()) Text("添加评论…", fontSize = 15.sp, color = Kongye.Text4)
+                        inner()
+                    }
+                },
+            )
+            Text(
+                "发送",
+                Modifier.clickable(enabled = text.isNotBlank()) {
+                    onSend(text)
+                    text = ""
+                }.padding(horizontal = 14.dp, vertical = 11.dp),
+                fontSize = 15.sp, color = if (text.isBlank()) Kongye.Text4 else Kongye.Primary,
+            )
+        }
     }
     if (autoFocus) LaunchedEffect(Unit) {
         delay(80)
@@ -177,12 +189,12 @@ fun CommentInput(autoFocus: Boolean, onSend: (String) -> Unit) {
     }
 }
 
-/** 选中文字后点“评论”：键盘上方出现输入框，发送后这段文字挂上评论 */
+/** 选中文字后点“评论”：键盘上方出现输入框，发送后这段文字挂上评论；“取消”放弃这条评论、回到原段落继续编辑 */
 @Composable
-fun CommentComposer(editor: EditorState, onDone: () -> Unit) {
+fun CommentComposer(editor: EditorState, onCancel: () -> Unit, onDone: () -> Unit) {
     Column(Modifier.fillMaxWidth().background(Kongye.Surface)) {
         HLine()
-        CommentInput(autoFocus = true) {
+        CommentInput(autoFocus = true, onCancel = onCancel) {
             editor.submitDraft(it)
             onDone()
         }
