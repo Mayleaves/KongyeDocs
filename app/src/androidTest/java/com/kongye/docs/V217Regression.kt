@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.graphics.Bitmap
 import android.graphics.Rect
 import android.os.SystemClock
+import android.view.Choreographer
 import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.accessibility.AccessibilityNodeInfo
@@ -61,6 +62,28 @@ object V217Regression {
         val activity = startTestActivity(instrument, context)
         val density = context.resources.displayMetrics.density
         fun ime() = main { ViewCompat.getRootWindowInsets(activity.window.decorView)?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0 }
+        fun cancelWithoutImeGap(label: String) {
+            Thread.sleep(400)
+            val baseline=ime()
+            check(baseline>160*density)
+            val frames=mutableListOf<Int>()
+            val visible=mutableListOf<Boolean>()
+            val deadline=SystemClock.uptimeMillis()+1500
+            val callback=object: Choreographer.FrameCallback {
+                override fun doFrame(time: Long) {
+                    val insets=ViewCompat.getRootWindowInsets(activity.window.decorView)
+                    frames+=(insets?.getInsets(WindowInsetsCompat.Type.ime())?.bottom ?: 0)
+                    visible+=(insets?.isVisible(WindowInsetsCompat.Type.ime())==true)
+                    if(SystemClock.uptimeMillis()<deadline) Choreographer.getInstance().postFrameCallback(this)
+                }
+            }
+            main { Choreographer.getInstance().postFrameCallback(callback) }
+            click("取消")
+            Thread.sleep(1300)
+            main { Choreographer.getInstance().removeFrameCallback(callback) }
+            instrument.sendStatus(0,android.os.Bundle().apply { putString("stream","Cancel $label IME: baseline=$baseline min=${frames.minOrNull()} max=${frames.maxOrNull()} visible=${visible.all { it }} frames=${frames.size}\n") })
+            check(frames.size>15 && frames.all { it>=baseline-2*density } && visible.all { it }) { "Keyboard closed during $label cancellation" }
+        }
         fun toolbar() = Rect().also { (find("编辑工具栏") ?: error("Toolbar missing")).getBoundsInScreen(it) }
         fun tool(index: Int) { val bar = toolbar(); touch((26 + 44 * index) * density, bar.exactCenterY()) }
         /** 当前获得焦点的输入框（只看本应用的窗口） */
@@ -111,7 +134,7 @@ object V217Regression {
             Thread.sleep(400)
             shot("v217-comment-composer.png")
 
-            click("取消")
+            cancelWithoutImeGap("typed-draft")
             waitFor("back to editing") {
                 find("添加评论…") == null && find("draft") == null && find("编辑工具栏") != null &&
                     main { EditorSession.current!!.let { it.commentDraft == null && it.focusedId == blockId } }
@@ -128,6 +151,39 @@ object V217Regression {
             Thread.sleep(400)
             shot("v217-after-cancel.png")
             passed("comment-cancel-returns-to-paragraph-with-keyboard-and-toolbar")
+
+            for((label,draftText) in listOf("empty-draft" to "","repeated-draft" to "再次取消的评论")) {
+                tool(5)
+                waitFor("composer $label") { find("取消")!=null && find("编辑工具栏")==null }
+                waitFor("composer focus $label") { focusedEditable()?.let { inComposer(it) }==true }
+                if(draftText.isNotEmpty()) { setText(draftText); waitFor("draft text $label") { find(draftText)!=null } }
+                val caret=main { EditorSession.current!!.commentDraft!!.end }
+                cancelWithoutImeGap(label)
+                waitFor("toolbar $label") { find("编辑工具栏")!=null && find("取消")==null && focusedEditable()?.let { !inComposer(it) }==true }
+                main {
+                    val editor=EditorSession.current!!
+                    check(editor.commentDraft==null && editor.focusedId==blockId)
+                    check(editor.focused!!.value.selection.collapsed && editor.focused!!.value.selection.end==caret)
+                    check(editor.content().bodyText()==body && editor.content().comments.isEmpty())
+                }
+                passed("$label-cancel-retains-keyboard-every-frame-and-original-caret")
+            }
+            // Verify typing goes straight into the document after the focus transfer.
+            main {
+                fun connection(view: android.view.View): android.view.inputmethod.InputConnection? {
+                    if(view.onCheckIsTextEditor()) view.onCreateInputConnection(android.view.inputmethod.EditorInfo())?.let { return it }
+                    if(view is android.view.ViewGroup) for(i in 0 until view.childCount) connection(view.getChildAt(i))?.let { return it }
+                    return null
+                }
+                val input=connection(activity.window.decorView) ?: error("Document input connection missing after cancellation")
+                check(input.commitText("继续编辑",1))
+            }
+            waitFor("typing in document after cancel") { main { EditorSession.current!!.content().bodyText()==body+"继续编辑" } }
+            check(ime()>160*density)
+            waitFor("continued text visible in document") { find(body+"继续编辑")!=null }
+            Thread.sleep(250)
+            shot("v218-after-cancel-continue-typing.png")
+            passed("typing-after-cancel-targets-document-without-tapping-again")
 
             // 发送照常：再开一次评论栏，写一条发出去
             tool(5)

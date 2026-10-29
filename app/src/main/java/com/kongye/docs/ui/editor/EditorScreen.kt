@@ -291,8 +291,23 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
     // 放弃这条评论，回到原来的段落继续编辑（返回键和评论栏的“取消”都走这里）
     fun cancelCommentDraft() {
         val d = editor.commentDraft ?: return
+        val target=editor.blocks.firstOrNull { it.id==d.blockId }
+        panel=null
+        returningToKeyboard=false
+        hidingKeyboardForPanel=false
+        if(target!=null) {
+            val caret=d.end.coerceIn(1,target.value.text.length)
+            target.value=target.value.copy(selection=TextRange(caret),composition=null)
+            // Transfer the live input session before removing the focused comment field.
+            // Deferring focus until the next frame lets the IME close in between.
+            val restored=runCatching { target.focus.requestFocus() }.getOrDefault(false)
+            editor.focusedId=target.id
+            editor.focusedCell=null
+            titleFocused=false
+            if(restored) editor.pendingFocus=null
+            else editor.requestFocus(target,caret)
+        }
         editor.commentDraft = null
-        editor.blocks.firstOrNull { it.id == d.blockId }?.let { editor.requestFocus(it, d.end) }
     }
     BackHandler(enabled = editor.commentDraft != null) { cancelCommentDraft() }
 
