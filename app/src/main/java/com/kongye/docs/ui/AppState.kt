@@ -39,7 +39,7 @@ sealed interface Screen {
 }
 
 /** 显示用的版本号（与 build.gradle 的 versionName 一致） */
-const val APP_VERSION = "2.21"
+const val APP_VERSION = "2.22"
 
 /** 底部导航：首页 / 文件 / 我的 */
 enum class Tab { HOME, FILES, ME }
