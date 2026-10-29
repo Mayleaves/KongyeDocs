@@ -33,6 +33,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -66,14 +68,23 @@ fun ToolbarOrderPanel(height: Dp,onDone: ()->Unit) {
 
 @Composable
 private fun ToolbarOrderContent(modifier: Modifier=Modifier,embedded: Boolean=false,onDone: ()->Unit) {
-    var order by remember { mutableStateOf(Tool.ordered(Repository.toolbar.value)) }
+    val originalOrder = remember { Tool.ordered(Repository.toolbar.value) }
+    var order by remember { mutableStateOf(originalOrder) }
     var dragging by remember { mutableStateOf<Tool?>(null) }
     var offset by remember { mutableFloatStateOf(0f) }
     val rowPx = with(LocalDensity.current) { rowHeight.toPx() }
 
     fun save() = Repository.setToolbar(order.map { it.name })
 
-    Column(modifier.fillMaxWidth().background(Kongye.Surface)) {
+    fun restoreDefault() {
+        order = Tool.entries.toList()
+        save()
+        Toast.done("已恢复默认顺序")
+    }
+
+    Column(modifier.fillMaxWidth().background(Kongye.Surface)
+        .then(if (embedded) Modifier.semantics { contentDescription = "自定义工具栏面板" } else Modifier)) {
+        if (!embedded) {
         Row(Modifier.fillMaxWidth().padding(start = 20.dp, end = 12.dp, top = 16.dp, bottom = 4.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text("自定义工具栏", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Kongye.Ink)
@@ -82,15 +93,13 @@ private fun ToolbarOrderContent(modifier: Modifier=Modifier,embedded: Boolean=fa
             }
             Text(
                 "恢复默认",
-                Modifier.clip(RoundedCornerShape(6.dp)).clickable {
-                    order = Tool.entries.toList()
-                    save()
-                    Toast.done("已恢复默认顺序")
-                }.padding(horizontal = 10.dp, vertical = 8.dp),
+                Modifier.clip(RoundedCornerShape(6.dp)).clickable { restoreDefault() }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
                 fontSize = 14.sp, color = Kongye.Ink2,
             )
         }
         HLine(color = Kongye.Divider)
+        }
         Column(Modifier.fillMaxWidth().then(if(embedded) Modifier.weight(1f).verticalScroll(rememberScrollState()) else Modifier)) {
             order.forEach { tool ->
                 key(tool) {
@@ -149,9 +158,24 @@ private fun ToolbarOrderContent(modifier: Modifier=Modifier,embedded: Boolean=fa
             }
         }
         HLine(color = Kongye.Divider)
-        Box(
-            Modifier.fillMaxWidth().height(54.dp).clickable(onClick=onDone).then(if(embedded) Modifier else Modifier.navigationBarsPadding()),
-            contentAlignment = Alignment.Center,
-        ) { Text("完成", fontSize = 16.sp, color = Kongye.Ink) }
+        if (embedded) {
+            Row(Modifier.fillMaxWidth().height(54.dp)) {
+                listOf<Pair<String, () -> Unit>>(
+                    "取消" to { order = originalOrder; save(); onDone() },
+                    "恢复默认" to { restoreDefault() },
+                    "完成" to { save(); onDone() },
+                ).forEach { (label, action) ->
+                    Box(Modifier.weight(1f).fillMaxHeight().clickable(onClick = action),
+                        contentAlignment = Alignment.Center) {
+                        Text(label, fontSize = 16.sp, color = Kongye.Ink)
+                    }
+                }
+            }
+        } else {
+            Box(Modifier.fillMaxWidth().height(54.dp).clickable(onClick=onDone).navigationBarsPadding(),
+                contentAlignment = Alignment.Center) {
+                Text("完成", fontSize = 16.sp, color = Kongye.Ink)
+            }
+        }
     }
 }

@@ -104,38 +104,56 @@ object ToolbarCustomizeRegression {
                 check(frames.size>10 && frames.all { it<=anchor+2*density && it>=anchor-lowerDp*density }) { "Custom panel moved during $name" }
             }
             fixed("keyboard-to-customize") { tool(6) }
-            waitFor("inline customize") { find("自定义工具栏")!=null && find("编辑工具栏",true)!=null && ime()==0 }
+            waitFor("inline customize") { find("自定义工具栏面板",true)!=null && find("编辑工具栏",true)!=null && ime()==0 }
             check(bounds(find("编辑工具栏",true)!!).height()==toolbarHeight)
-            check(find("自定义工具栏")!!.windowId==find("编辑工具栏",true)!!.windowId) { "Customization must share the editor window" }
+            check(find("自定义工具栏面板",true)!!.windowId==find("编辑工具栏",true)!!.windowId) { "Customization must share the editor window" }
+            check(find("自定义工具栏")==null && find("按住右侧 ≡ 上下拖动，调整键盘上方工具的顺序")==null)
+            val cancel=bounds(find("取消")!!)
+            val reset=bounds(find("恢复默认")!!)
+            val done=bounds(find("完成")!!)
+            check(cancel.top==reset.top && reset.top==done.top && cancel.right<=reset.left && reset.right<=done.left)
             shot("toolbar-customize-inline.png")
             fixed("customize-to-keyboard") { tool(6) }
-            waitFor("keyboard restored") { find("自定义工具栏")==null && ime()>160*density }
+            waitFor("keyboard restored") { find("自定义工具栏面板",true)==null && ime()>160*density }
             passed("customize-replaces-keyboard-inline-without-modal-or-toolbar-movement")
 
             fixed("style-open") { tool(0) }
-            for((index,label) in listOf(6 to "自定义工具栏",1 to "段落首行缩进",6 to "自定义工具栏",2 to "拍照",6 to "自定义工具栏")) {
+            for((index,label) in listOf(6 to "自定义工具栏面板",1 to "段落首行缩进",6 to "自定义工具栏面板",2 to "拍照",6 to "自定义工具栏面板")) {
                 fixed("switch-$index") { tool(index) }
-                waitFor("settled panel $label") { find(label)!=null && ime()==0 }
+                waitFor("settled panel $label") { find(label,label=="自定义工具栏面板")!=null && ime()==0 }
             }
             passed("customize-switches-with-three-tool-panels-in-the-same-space")
 
-            val handle=bounds(find("拖动文字样式",true) ?: error("Style drag handle missing"))
+            fun drag(label: String,deltaDp: Float) {
+            val handle=bounds(find(label,true) ?: error("Drag handle missing: $label"))
             val start=SystemClock.uptimeMillis()
             fun event(action: Int,y: Float)=MotionEvent.obtain(start,SystemClock.uptimeMillis(),action,handle.exactCenterX(),y,0).apply { source=InputDevice.SOURCE_TOUCHSCREEN }
             event(MotionEvent.ACTION_DOWN,handle.exactCenterY()).let { check(auto.injectInputEvent(it,true)); it.recycle() }
             Thread.sleep(90)
-            repeat(12) { i -> event(MotionEvent.ACTION_MOVE,handle.exactCenterY()+(i+1)*55*density/12).let { check(auto.injectInputEvent(it,true)); it.recycle() }; Thread.sleep(25) }
-            event(MotionEvent.ACTION_UP,handle.exactCenterY()+55*density).let { check(auto.injectInputEvent(it,true)); it.recycle() }
+            repeat(12) { i -> event(MotionEvent.ACTION_MOVE,handle.exactCenterY()+(i+1)*deltaDp*density/12).let { check(auto.injectInputEvent(it,true)); it.recycle() }; Thread.sleep(25) }
+            event(MotionEvent.ACTION_UP,handle.exactCenterY()+deltaDp*density).let { check(auto.injectInputEvent(it,true)); it.recycle() }
+            }
+            drag("拖动文字样式",55f)
             val expected=listOf("PARAGRAPH","STYLE","INSERT","UNDO","REDO","COMMENT")
             waitFor("order saved after drag") { main { Repository.toolbar.value==expected } }
             shot("toolbar-customize-reordered.png")
             fixed("finish-reordered") { click("完成") }
-            waitFor("done returns to keyboard") { ime()>160*density && find("自定义工具栏")==null }
+            waitFor("done returns to keyboard") { ime()>160*density && find("自定义工具栏面板",true)==null }
             main { AppState.goHome(Tab.HOME); Repository.init(fixture); check(Repository.toolbar.value==expected) }
             enterEditor()
             fixed("reopen-persisted") { tool(6) }
             waitFor("persisted order visible") { runCatching { bounds(find("段落")!!).top<bounds(find("文字样式")!!).top }.getOrDefault(false) }
             passed("inline-handle-drag-saves-order-and-persists-after-reload")
+
+            val defaults=Tool.entries.map { it.name }
+            drag("拖动文字样式",-55f)
+            waitFor("second drag changed order") { main { Repository.toolbar.value==defaults } }
+            fixed("cancel-reordered") { click("取消") }
+            waitFor("cancel returns to keyboard") { ime()>160*density && find("自定义工具栏面板",true)==null }
+            main { Repository.init(fixture); check(Repository.toolbar.value==expected) }
+            fixed("reopen-after-cancel") { tool(6) }
+            waitFor("cancelled order restored") { runCatching { bounds(find("段落")!!).top<bounds(find("文字样式")!!).top }.getOrDefault(false) }
+            passed("cancel-rolls-back-drag-and-preserves-keyboard-and-saved-order")
 
             var scroll=find("段落")!!
             while(!scroll.isScrollable) scroll=scroll.parent ?: error("Order list must scroll")
@@ -147,6 +165,20 @@ object ToolbarCustomizeRegression {
             waitFor("default order restored") { main { Repository.toolbar.value==Tool.entries.map { it.name } } }
             Thread.sleep(1500)
             passed("inline-order-list-scrolls-and-restore-default-still-works")
+
+            fixed("cancel-reset") { click("取消") }
+            waitFor("reset cancelled") { ime()>160*density && find("自定义工具栏面板",true)==null }
+            main { Repository.init(fixture); check(Repository.toolbar.value==expected) }
+            fixed("reopen-reset") { tool(6) }
+            waitFor("reset button ready") { find("恢复默认")!=null }
+            click("恢复默认")
+            waitFor("reset preview") { main { Repository.toolbar.value==defaults } }
+            fixed("complete-reset") { click("完成") }
+            waitFor("reset completed") { ime()>160*density && find("自定义工具栏面板",true)==null }
+            main { Repository.init(fixture); check(Repository.toolbar.value==defaults) }
+            fixed("reopen-completed-reset") { tool(6) }
+            waitFor("completed reset visible") { runCatching { bounds(find("文字样式")!!).top<bounds(find("段落")!!).top }.getOrDefault(false) }
+            passed("cancel-rolls-back-reset-and-done-persists-default-order")
 
             fixed("customize-to-comment",20f) { tool(5) }
             waitFor("comment keyboard") { find("取消")!=null && find("编辑工具栏",true)==null && ime()>160*density }
