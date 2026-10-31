@@ -91,11 +91,13 @@ fun KongyeApp() {
                     Screen.LocalBackup -> LocalBackupScreen()
                     Screen.CloudBackup -> CloudBackupScreen()
                     Screen.About -> AboutScreen()
+                    is Screen.VaultEdit -> com.kongye.docs.ui.vault.VaultEditScreen(screen.id, screen.type)
                 }
             }
         }
         // 首页 / 文件里的搜索：浮在当前页面上（顶部搜索栏滑入、背景变暗）
         if (AppState.searchOpen) SearchOverlay()
+        if (AppState.vaultSearchOpen) com.kongye.docs.ui.vault.VaultSearchOverlay()
         GlobalOverlays()
         ToastHost()
         IntroOverlay()

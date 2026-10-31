@@ -77,6 +77,13 @@ object Share {
         cm.setPrimaryClip(ClipData.newPlainText(label, text))
     }
 
+    /** 复制密码、验证码：标记为敏感内容，系统的剪贴板预览里不显示明文（Android 13 起生效） */
+    fun copySecret(context: Context, label: String, text: String) {
+        val clip = ClipData.newPlainText(label, text)
+        clip.description.extras = android.os.PersistableBundle().apply { putBoolean("android.content.extra.IS_SENSITIVE", true) }
+        context.getSystemService(ClipboardManager::class.java).setPrimaryClip(clip)
+    }
+
     fun openUrl(context: Context, url: String): Boolean = runCatching {
         val fixed = if (Regex("^[a-zA-Z][a-zA-Z0-9+.-]*:").containsMatchIn(url)) url else "https://$url"
         context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(fixed)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))

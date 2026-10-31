@@ -5,4 +5,5 @@
     <exclude domain="file" path="settings.json.tmp" />
     <exclude domain="file" path=".transaction/" />
     <exclude domain="file" path="recovery/" />
+    <exclude domain="file" path="vault/" />
 </full-backup-content>

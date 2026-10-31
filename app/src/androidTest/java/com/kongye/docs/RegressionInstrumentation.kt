@@ -24,7 +24,10 @@ class RegressionInstrumentation : Instrumentation() {
     private var onlyToolbarCustomize=false
     private var onlyCommentHandoff=false
     private var onlyV217=false
-    override fun onCreate(arguments: Bundle?) { onlyToolbarCustomize=arguments?.getString("only")=="toolbar-customize"; onlyCommentHandoff=arguments?.getString("only")=="comment-handoff"; onlyV217=arguments?.getString("only")=="v217"; onlyDock=arguments?.getString("only")=="dock"; onlyV215=arguments?.getString("only")=="v215"; onlyV214=arguments?.getString("only")=="v214"; onlyV213=arguments?.getString("only")=="v213"; onlyCats=arguments?.getString("only")=="cats"; editorModels=arguments?.getString("only")=="editor-models"; if(arguments?.getString("only")=="verify-backups") verifyPaths=arguments.getString("before")!! to arguments.getString("after")!!; manualKeyboard=arguments?.getString("only")=="keyboard"; onlyUi=arguments?.getString("only")=="ui"; onlyEditor=arguments?.getString("only")=="editor"; super.onCreate(arguments); start() }
+    private var onlyV223=false
+    private var onlyV224=false
+    private var onlyV225=false
+    override fun onCreate(arguments: Bundle?) { onlyV225=arguments?.getString("only")=="v225"; onlyV224=arguments?.getString("only")=="v224"; onlyV223=arguments?.getString("only")=="v223"; onlyToolbarCustomize=arguments?.getString("only")=="toolbar-customize"; onlyCommentHandoff=arguments?.getString("only")=="comment-handoff"; onlyV217=arguments?.getString("only")=="v217"; onlyDock=arguments?.getString("only")=="dock"; onlyV215=arguments?.getString("only")=="v215"; onlyV214=arguments?.getString("only")=="v214"; onlyV213=arguments?.getString("only")=="v213"; onlyCats=arguments?.getString("only")=="cats"; editorModels=arguments?.getString("only")=="editor-models"; if(arguments?.getString("only")=="verify-backups") verifyPaths=arguments.getString("before")!! to arguments.getString("after")!!; manualKeyboard=arguments?.getString("only")=="keyboard"; onlyUi=arguments?.getString("only")=="ui"; onlyEditor=arguments?.getString("only")=="editor"; super.onCreate(arguments); start() }
     private fun report(code: Int,bundle: Bundle) {
         File(targetContext.cacheDir,"regression-progress.txt").appendText(bundle.getString("stream").orEmpty())
         sendStatus(code,bundle)
@@ -70,6 +73,21 @@ class RegressionInstrumentation : Instrumentation() {
                 V217Regression.run(this,targetContext,reportPass)
                 DockUiRegression.run(this,targetContext,reportPass)
                 finish(Activity.RESULT_OK,Bundle().apply { putString("stream","ALL $passed COMMENT HANDOFF TESTS PASSED\n") })
+                return
+            }
+            if(onlyV225) {
+                V225Regression.run(this,targetContext) { name -> passed++; report(0,Bundle().apply { putString("stream","PASS $name\n") }) }
+                finish(Activity.RESULT_OK,Bundle().apply { putString("stream","ALL $passed V2.25 TESTS PASSED\n") })
+                return
+            }
+            if(onlyV224) {
+                V224Regression.run(this,targetContext) { name -> passed++; report(0,Bundle().apply { putString("stream","PASS $name\n") }) }
+                finish(Activity.RESULT_OK,Bundle().apply { putString("stream","ALL $passed V2.24 TESTS PASSED\n") })
+                return
+            }
+            if(onlyV223) {
+                V223Regression.run(this,targetContext) { name -> passed++; report(0,Bundle().apply { putString("stream","PASS $name\n") }) }
+                finish(Activity.RESULT_OK,Bundle().apply { putString("stream","ALL $passed V2.23 TESTS PASSED\n") })
                 return
             }
             if(onlyV217) {

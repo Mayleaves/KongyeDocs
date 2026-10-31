@@ -171,6 +171,10 @@ data class Backup(
     val exportFiles: Map<String, String> = emptyMap(),
     val revision: Long = 0L,
     val checksum: String = "",
+    /** 用备份密码加密的密码空间；没有时不写入 JSON，旧备份的校验值保持有效 */
+    @OptIn(kotlinx.serialization.ExperimentalSerializationApi::class)
+    @kotlinx.serialization.EncodeDefault(kotlinx.serialization.EncodeDefault.Mode.NEVER)
+    val vault: VaultBackup? = null,
 )
 
 /** 文档纯文本，用于搜索、预览、字数统计和分享 */

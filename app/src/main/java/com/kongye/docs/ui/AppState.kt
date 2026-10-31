@@ -7,6 +7,7 @@ import androidx.compose.runtime.setValue
 import com.kongye.docs.data.Item
 import com.kongye.docs.data.Repository
 import com.kongye.docs.data.Settings
+import com.kongye.docs.data.VaultType
 import com.kongye.docs.data.VersionKind
 
 sealed interface Screen {
@@ -36,16 +37,22 @@ sealed interface Screen {
 
     /** 我的 → 关于 */
     data object About : Screen
+
+    /** 密码空间：新增（id 为 null）或编辑一条动态密码 / 密码 */
+    data class VaultEdit(val id: String?, val type: VaultType) : Screen
 }
 
 /** 显示用的版本号（与 build.gradle 的 versionName 一致） */
-const val APP_VERSION = "2.22"
+const val APP_VERSION = "2.25"
 
 /** 底部导航：首页 / 文件 / 我的 */
 enum class Tab { HOME, FILES, ME }
 
 /** 首页顶部的分栏 */
 enum class HomeSub(val label: String) { RECENT("最近"), STARRED("收藏"), CREATED("创建") }
+
+/** 文件页顶部的分栏：我的桌面 / 密码空间 */
+enum class FilesSub(val label: String) { DESKTOP("我的桌面"), VAULT("密码空间") }
 
 /**
  * 排序方式：sheet 里显示完整名称，排序栏里显示简称；时间默认从新到旧，名称、类型默认正序。
@@ -94,6 +101,13 @@ object AppState {
         private set
     var tab by mutableStateOf(Tab.HOME)
     var homeSub by mutableStateOf(HomeSub.RECENT)
+    var filesSub by mutableStateOf(FilesSub.DESKTOP)
+
+    /** 密码空间里点了右下角 +：弹出“添加动态密码 / 添加密码” */
+    var vaultAdd by mutableStateOf(false)
+
+    /** 密码空间的搜索浮层（与我的桌面的搜索分开，只搜密码空间） */
+    var vaultSearchOpen by mutableStateOf(false)
 
     /** 文件页、收藏、创建各自的排序方式；文件页的会记住（手动排序下次打开仍是手动顺序） */
     private var filesSort by mutableStateOf(savedFilesSort())

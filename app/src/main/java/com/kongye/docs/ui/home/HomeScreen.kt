@@ -76,6 +76,7 @@ import com.kongye.docs.data.Item
 import com.kongye.docs.data.Repository
 import com.kongye.docs.ui.AppState
 import com.kongye.docs.ui.DialogRequest
+import com.kongye.docs.ui.FilesSub
 import com.kongye.docs.ui.HomeSub
 import com.kongye.docs.ui.SortMode
 import com.kongye.docs.ui.SortSpec
@@ -92,6 +93,7 @@ import com.kongye.docs.ui.components.KongyeIcons
 import com.kongye.docs.ui.components.SheetRow
 import com.kongye.docs.ui.components.Toast
 import com.kongye.docs.ui.theme.Kongye
+import com.kongye.docs.ui.vault.VaultPage
 import com.kongye.docs.util.dateHeader
 import com.kongye.docs.util.stampTime
 import kotlin.math.max
@@ -107,7 +109,11 @@ fun HomeScreen() {
                 Tab.ME -> MeTab(items)
             }
             if (AppState.tab != Tab.ME && AppState.selection == null) {
-                Fab(Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 20.dp)) { AppState.requestCreate(null) }
+                Fab(Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 20.dp)) {
+                    // 密码空间里的 + 是添加动态密码 / 密码
+                    if (AppState.tab == Tab.FILES && AppState.filesSub == FilesSub.VAULT) AppState.vaultAdd = true
+                    else AppState.requestCreate(null)
+                }
             }
         }
         val selection = AppState.selection
@@ -486,15 +492,28 @@ fun SortSheet(current: SortSpec, modes: List<SortMode>, onDismiss: () -> Unit, o
 
 /** 一级页面的顶栏：左侧标题内容，右侧搜索 */
 @Composable
-private fun PageHeader(content: @Composable RowScope.() -> Unit) {
+private fun PageHeader(onSearch: () -> Unit = { AppState.searchOpen = true }, content: @Composable RowScope.() -> Unit) {
     Row(
         Modifier.fillMaxWidth().statusBarsPadding().height(56.dp).padding(start = 20.dp, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         content()
         Spacer(Modifier.weight(1f))
-        IconBtn(KongyeIcons.Search, { AppState.searchOpen = true }, tint = Kongye.Ink2, iconSize = 24.dp, description = "搜索")
+        IconBtn(KongyeIcons.Search, onSearch, tint = Kongye.Ink2, iconSize = 24.dp, description = "搜索")
     }
+}
+
+/** 页面顶部的分栏标题（首页的最近 / 收藏 / 创建，文件页的我的桌面 / 密码空间） */
+@Composable
+private fun HeaderTab(label: String, selected: Boolean, onClick: () -> Unit) {
+    Text(
+        label,
+        Modifier.clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+            .padding(end = 22.dp, top = 8.dp, bottom = 8.dp),
+        fontSize = 20.sp,
+        fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        color = if (selected) Kongye.Ink else Kongye.TabOff,
+    )
 }
 
 // ---------------- 首页：最近 / 收藏 / 创建 ----------------
@@ -516,15 +535,7 @@ private fun HomeTab(items: List<Item>) {
             SelectionHeader(sections.flatMap { s -> s.entries.map { it.first.id } })
         } else PageHeader {
             HomeSub.entries.forEach { sub ->
-                val selected = pager.targetPage == sub.ordinal
-                Text(
-                    sub.label,
-                    Modifier.clickable(remember { MutableInteractionSource() }, indication = null) { AppState.homeSub = sub }
-                        .padding(end = 22.dp, top = 8.dp, bottom = 8.dp),
-                    fontSize = 20.sp,
-                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (selected) Kongye.Ink else Kongye.TabOff,
-                )
+                HeaderTab(sub.label, pager.targetPage == sub.ordinal) { AppState.homeSub = sub }
             }
         }
         HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = AppState.selection == null, key = { it }) { page ->
@@ -590,10 +601,29 @@ internal fun recentSections(items: List<Item>): List<Section> {
 
 @Composable
 private fun FilesTab(items: List<Item>) {
+    // 我的桌面 / 密码空间：同级的两页，和首页“最近 / 收藏 / 创建”一样可以左右滑动切换
+    val pager = rememberPagerState(initialPage = AppState.filesSub.ordinal) { FilesSub.entries.size }
+    LaunchedEffect(pager) { snapshotFlow { pager.settledPage }.collect { AppState.filesSub = FilesSub.entries[it] } }
+    LaunchedEffect(AppState.filesSub) {
+        val page = AppState.filesSub.ordinal
+        if (pager.targetPage != page) pager.animateScrollToPage(page)
+    }
     Column(Modifier.fillMaxSize()) {
         if (AppState.selection != null) SelectionHeader(Repository.children(null, items).map { it.id })
-        else PageHeader { Text("我的桌面", fontSize = 20.sp, fontWeight = FontWeight.SemiBold, color = Kongye.Ink) }
-        FolderContents(null, items)
+        else PageHeader(onSearch = {
+            // 搜索跟着当前页：我的桌面搜文件，密码空间只搜密码空间
+            if (FilesSub.entries[pager.targetPage] == FilesSub.VAULT) AppState.vaultSearchOpen = true else AppState.searchOpen = true
+        }) {
+            FilesSub.entries.forEach { sub ->
+                HeaderTab(sub.label, pager.targetPage == sub.ordinal) {
+                    AppState.endSelection()
+                    AppState.filesSub = sub
+                }
+            }
+        }
+        HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = AppState.selection == null, key = { it }) { page ->
+            if (FilesSub.entries[page] == FilesSub.VAULT) VaultPage() else FolderContents(null, items)
+        }
     }
 }
 

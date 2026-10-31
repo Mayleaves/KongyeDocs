@@ -81,6 +81,12 @@ object KongyeIcons {
     val FolderPlus = icon("folderPlus") { s(FOLDER); s("M12 11v5M9.5 13.5h5") }
     val Pin = pin("pin", filled = false)
     val PinFilled = pin("pinFilled", filled = true)
+    /** 密码空间：钥匙（普通密码）、盾牌（动态密码）、显示 / 隐藏密码、重新生成 */
+    val Key = icon("key") { s(circle(7.5f, 12f, 3.6f)); s("M11.1 12H20.5M17.5 12v3.2M20.5 12v2.4") }
+    val Shield = icon("shield") { s("M12 3.4l7 2.7v5.3c0 4.5-2.9 8-7 9.2-4.1-1.2-7-4.7-7-9.2V6.1z"); s("M12 8.2v4.1l2.6 1.6") }
+    val Eye = icon("eye") { s("M2.6 12s3.4-6.3 9.4-6.3S21.4 12 21.4 12s-3.4 6.3-9.4 6.3S2.6 12 2.6 12z"); s(circle(12f, 12f, 2.8f)) }
+    val EyeOff = icon("eyeOff") { s("M2.6 12s3.4-6.3 9.4-6.3S21.4 12 21.4 12s-3.4 6.3-9.4 6.3S2.6 12 2.6 12z"); s(circle(12f, 12f, 2.8f)); s("M4.5 4.5l15 15") }
+    val Refresh = icon("refresh") { s("M19.3 12.6A7.4 7.4 0 1 1 17.2 6.8"); s("M19.4 4.3v3.9h-3.9") }
     val Star = icon("star") { s(STAR) }
     val StarFilled = icon("starFilled") { f(STAR); s(STAR) }
     val User = icon("user") { s(circle(12f, 8.5f, 3.8f)); s("M4.5 20c.8-3.6 3.9-5.8 7.5-5.8s6.7 2.2 7.5 5.8") }

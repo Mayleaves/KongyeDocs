@@ -15,6 +15,7 @@
 
 - **文档与文件夹**：新建、重命名、移动、收藏、置顶 / 取消置顶、删除；置顶优先于名称、类型、时间及手动排序，置顶项浅灰底、标题后带图钉，编辑页顶栏也有标记，并随备份保留；回收站保留至手动彻底删除
 - **整理**：长按多选，批量置顶 / 收藏 / 移动 / 删除；长按拖动调整顺序（手动排序），置顶项之间也可拖动换位；按文件名、类型、创建时间、更新时间排序；列表 / 缩略图两种视图
+- **密码空间**：在「文件」顶部与「我的桌面」同级，可左右滑动切换；保存动态密码（2FA，输入密钥或粘贴 otpauth:// 链接，实时显示验证码）和普通密码（可随机生成）；字段顺序为 名称、账号、密码（、密钥）、自定义字段，自定义字段可改名、上移 / 下移、设为隐藏、增加和删除；点一下查看全部字段并点击复制，长按置顶、编辑、复制全部字段、删除；支持搜索（不搜密码和隐藏内容）；内容用 Android Keystore 加密保存在本机，不进搜索和系统自动备份；设置备份密码后加密随本地 / 云端备份，换机输入备份密码恢复
 - **我的**：顶部显示文件、文件夹和收藏数量，不计回收站内的条目；收藏与首页收藏列表采用相同范围
 - **首页**：「最近」「收藏」「创建」三栏，左右滑动切换
 - **搜索**：搜索标题、正文和评论，可按时间和类型筛选
@@ -125,6 +126,24 @@ adb -s DEVICE_SERIAL shell am instrument -w -e only dock com.kongye.docs.docktes
 
 ```bash
 adb -s DEVICE_SERIAL shell am instrument -w -e only v217 com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+```
+
+密码空间（动态密码计算、加密保存、加密备份与恢复、界面）专项检查，全部使用测试用假数据：
+
+```bash
+adb -s DEVICE_SERIAL shell am instrument -w -e only v223 com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+```
+
+密码空间搜索、置顶、左右滑动、自定义字段、长按查看字段专项检查：
+
+```bash
+adb -s DEVICE_SERIAL shell am instrument -w -e only v224 com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+```
+
+密码空间点击详情、长按菜单、字段顺序与字段操作专项检查：
+
+```bash
+adb -s DEVICE_SERIAL shell am instrument -w -e only v225 com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
 ```
 
 工具直接切评论及相关键盘回归（同上面的独立键盘测试包，共 13 项）：

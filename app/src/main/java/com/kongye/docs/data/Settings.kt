@@ -39,6 +39,8 @@ data class BackupSettings(
     val allowInsecureDav: Boolean = false,
     val lastLocalRevision: Long = -1L,
     val lastDavRevision: Long = -1L,
+    /** 密码空间的备份密码：设置后密码空间用它加密放进备份；在本机用 Keystore 加密保存，不随备份导出 */
+    val vaultPassword: String = "",
 )
 
 @Serializable
@@ -72,8 +74,10 @@ object Settings {
                 AppSettings(backup = BackupSettings(localError = "设置读取失败，原文件已保留，请重新配置备份", davError = "设置读取失败，请重新配置备份"))
             }
         val plain = runCatching { CredentialStore.decrypt(stored.backup.davPassword) }
-        _state.value = if (plain.isSuccess) stored.copy(backup = stored.backup.copy(davPassword = plain.getOrThrow()))
+        val loaded = if (plain.isSuccess) stored.copy(backup = stored.backup.copy(davPassword = plain.getOrThrow()))
             else stored.copy(backup = stored.backup.copy(davPassword = "", davEnabled = false, davError = "无法解密 WebDAV 凭据，请重新输入应用密码"))
+        // 解不开的备份密码当作未设置：密码空间暂不进备份，在密码空间里重新设置即可
+        _state.value = loaded.copy(backup = loaded.backup.copy(vaultPassword = runCatching { CredentialStore.decrypt(stored.backup.vaultPassword) }.getOrDefault("")))
         if (stored.backup.davPassword.isNotEmpty() && !CredentialStore.isEncrypted(stored.backup.davPassword)) {
             // Rotate twice so a plaintext 2.1 settings backup is not left behind.
             runCatching { persist(_state.value); persist(_state.value); File(file.parentFile, "settings.json.tmp").delete() }
@@ -89,7 +93,10 @@ object Settings {
     }
 
     private fun persist(settings: AppSettings) {
-        val protected = settings.copy(backup = settings.backup.copy(davPassword = CredentialStore.encrypt(settings.backup.davPassword)))
+        val protected = settings.copy(backup = settings.backup.copy(
+            davPassword = CredentialStore.encrypt(settings.backup.davPassword),
+            vaultPassword = CredentialStore.encrypt(settings.backup.vaultPassword),
+        ))
         DurableFiles.write(file, json.encodeToString(protected))
     }
 

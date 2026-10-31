@@ -95,6 +95,8 @@ object Repository {
     @Synchronized
     fun init(context: Context) {
         app = context.applicationContext
+        // 密码空间与文档同一个数据目录（测试用的独立目录也一样），各自加密保存
+        VaultStore.init(context)
         _problem.value = ""
         _items.value = emptyList(); _templates.value = emptyList(); _exports.value = emptyList()
         docCache.clear(); versionCache.clear(); templateCache.clear(); textIndex.clear(); commentIndex.clear()
@@ -765,7 +767,8 @@ object Repository {
             file.name to Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
         }
         return BackupCodec.encode(Backup(nickname = _nickname.value, items = items, docs = docs, images = images,
-            library = library().copy(revision = revision), versions = history, templates = templates, exportRecords = _exports.value, exportFiles = files, revision = revision))
+            library = library().copy(revision = revision), versions = history, templates = templates, exportRecords = _exports.value, exportFiles = files, revision = revision,
+            vault = VaultStore.backupPayload()))
     }
 
     /** 导入备份：同 id 的条目会被覆盖，其余保留；返回导入的文档数（不算回收站里的） */
@@ -832,6 +835,8 @@ object Repository {
         revision++
         _problem.value = ""
         buildIndexAndCleanImages()
+        // 文档恢复完成后再处理密码空间：本机记住的备份密码能解开就直接恢复，否则弹窗请用户输入
+        backup.vault?.let { VaultStore.offerRestore(it) }
         return backup.items.count { it.isDoc && it.deletedAt == null }
     }
 

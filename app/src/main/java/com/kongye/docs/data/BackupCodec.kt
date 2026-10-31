@@ -88,5 +88,8 @@ object BackupCodec {
         }
         backup.images.values.forEach { require(Base64.decode(it, Base64.NO_WRAP).isNotEmpty()) { "备份图片为空" } }
         backup.exportRecords.forEach { r -> require(validId(r.id) && "${r.id}.${r.kind.ext}" in backup.exportFiles) { "备份下载记录不完整" } }
+        backup.vault?.let { v ->
+            require(v.kdf == VaultStore.KDF && v.count >= 0 && listOf(v.salt, v.iv, v.data).all { Base64.decode(it, Base64.NO_WRAP).isNotEmpty() }) { "备份里的密码空间格式损坏" }
+        }
     }
 }
