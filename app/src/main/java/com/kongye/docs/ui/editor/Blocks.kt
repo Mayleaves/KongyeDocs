@@ -344,7 +344,11 @@ internal fun Modifier.textGestures(
                 withFrameNanos { }
                 editor.completeCharSelect(key,range.first,range.second,token)
             }
-            if(!moved && !second && released) { lastUp=upTime; lastPos=down.position }
+            if(!moved && !second && released) {
+                lastUp=upTime; lastPos=down.position
+                // 单击放下光标：等输入框自己把光标移过去后，在光标下方显示插入手柄
+                selectionScope.launch { withFrameNanos { }; withFrameNanos { }; editor.showInsertionHandle(key) }
+            }
             else lastUp=0L
         }
     }

@@ -146,6 +146,12 @@ adb -s DEVICE_SERIAL shell am instrument -w -e only v224 com.kongye.docs.audit.t
 adb -s DEVICE_SERIAL shell am instrument -w -e only v225 com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
 ```
 
+编辑器插入手柄（点在字缝显示、拖动移动光标、打字后消失）专项检查：
+
+```bash
+adb -s DEVICE_SERIAL shell am instrument -w -e only v226 com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+```
+
 工具直接切评论及相关键盘回归（同上面的独立键盘测试包，共 13 项）：
 
 ```bash

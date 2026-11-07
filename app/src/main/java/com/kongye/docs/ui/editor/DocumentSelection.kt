@@ -99,13 +99,19 @@ class DocumentSelection(internal val editor: EditorState) {
             val top = c.localToRoot(Offset.Zero).y
             when { root.y < top -> top-root.y; root.y > top+c.size.height -> root.y-top-c.size.height; else -> 0f }
         } ?: return null
-        val layout = editor.layouts[entry.key] ?: return null
-        val p = entry.value.localPositionOfRoot(root)
-        val offset = layout.getOffsetForPosition(p).coerceIn(min(entry.key),layout.layoutInput.text.length)
+        return endpointIn(entry.key,root)
+    }
+
+    /** Nearest caret position inside one field (the insertion handle never leaves its field). */
+    fun endpointIn(key: String, root: Offset): SelectionPoint? {
+        val coords = coordinates[key]?.takeIf { it.isAttached } ?: return null
+        val layout = editor.layouts[key] ?: return null
+        val p = coords.localPositionOfRoot(root)
+        val offset = layout.getOffsetForPosition(p).coerceIn(min(key),layout.layoutInput.text.length)
         // Keep handle endpoints on Unicode grapheme boundaries.
         val boundary = java.text.BreakIterator.getCharacterInstance().apply { setText(layout.layoutInput.text.text) }
-        val safe = if (boundary.isBoundary(offset)) offset else boundary.preceding(offset).coerceAtLeast(min(entry.key))
-        return SelectionPoint(entry.key,safe)
+        val safe = if (boundary.isBoundary(offset)) offset else boundary.preceding(offset).coerceAtLeast(min(key))
+        return SelectionPoint(key,safe)
     }
 
     private var dragAnchor: SelectionPoint? = null

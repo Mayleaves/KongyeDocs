@@ -81,6 +81,47 @@ class EditorState(val docId: String, val isNew: Boolean) {
     var focusedId by mutableStateOf<String?>(null)
     var focusedCell by mutableStateOf<CellRef?>(null)
     var pendingFocus by mutableStateOf<PendingFocus?>(null)
+    /** 标题输入框是否有焦点（插入手柄判断用） */
+    var titleFocused by mutableStateOf(false)
+
+    /**
+     * 点在字与字之间放下光标时，光标下方显示蓝色插入手柄（可拖动移动光标）；
+     * 开始打字、选中文字或离开这个输入框后，回到普通的文本光标。
+     * 拖动由输入框自带的（透明）插入手柄完成，这里画的手柄始终跟着当前光标。
+     */
+    var insertionHandle by mutableStateOf<SelectionPoint?>(null)
+
+    private fun caretOf(key: String): Int? {
+        val v = if (key == TITLE_KEY) title else blocks.firstOrNull { it.id == key && it.type.isText }?.value ?: return null
+        return v.selection.takeIf { it.collapsed }?.start
+    }
+
+    /** 单击放下光标后调用（等输入框自己更新完光标再看光标在哪） */
+    fun showInsertionHandle(key: String) {
+        if (selection.active || findMode || commentDraft != null || commentView != null) return
+        val offset = caretOf(key) ?: return
+        insertionHandle = SelectionPoint(key, offset)
+    }
+
+    /** 现在要不要画插入手柄、画在哪：所在输入框仍有焦点、光标没有展开成选区，没有评论 / 查找；位置跟着当前光标 */
+    val visibleInsertionHandle: SelectionPoint?
+        get() {
+            val h = insertionHandle ?: return null
+            if (selection.active || findMode || commentDraft != null || commentView != null) return null
+            val focused = if (h.key == TITLE_KEY) titleFocused else focusedId == h.key && focusedCell == null
+            if (!focused) return null
+            return SelectionPoint(h.key, caretOf(h.key) ?: return null)
+        }
+
+    /** 输入框自带手柄不在时的兜底拖动：光标跟着手指移到这个输入框里最近的位置（不跨输入框） */
+    fun moveInsertionHandle(root: androidx.compose.ui.geometry.Offset) {
+        val current = visibleInsertionHandle ?: return
+        val p = selection.endpointIn(current.key, root) ?: return
+        if (p == current) return
+        if (p.key == TITLE_KEY) title = title.copy(selection = TextRange(p.offset), composition = null)
+        else blocks.firstOrNull { it.id == p.key }?.let { it.value = it.value.copy(selection = TextRange(p.offset), composition = null) }
+        insertionHandle = p
+    }
     var version by mutableIntStateOf(0)
         private set
     var inputGeneration by mutableIntStateOf(0)
@@ -283,6 +324,8 @@ class EditorState(val docId: String, val isNew: Boolean) {
     // ---------------- 标题 ----------------
 
     fun onTitleChange(v: TextFieldValue) {
+        // 开始打字：插入手柄消失，只留普通文本光标
+        if (v.text != title.text) insertionHandle = null
         if(selection.active) { if(v.text!=title.text) selection.replace(insertedText(title.text,v.text)); return }
         takeCharSelect(TITLE_KEY,title,v)?.let { selection.set(SelectionPoint(TITLE_KEY,it.selection.min),SelectionPoint(TITLE_KEY,it.selection.max)); return }
         if(v.text == title.text && !v.selection.collapsed) {
@@ -314,6 +357,8 @@ class EditorState(val docId: String, val isNew: Boolean) {
     fun onValueChange(b: BlockState, incoming: TextFieldValue) {
         // 已被合并删除、但输入框还没销毁的块（失焦时会再回调一次），不再处理
         if (b !in blocks) return
+        // 开始打字：插入手柄消失，只留普通文本光标
+        if (incoming.text != b.value.text) insertionHandle = null
         if(selection.active) {
             if(incoming.text!=b.value.text) {
                 val keyboard=selection.fromKeyboard && articleSelected

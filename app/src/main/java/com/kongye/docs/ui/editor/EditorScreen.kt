@@ -319,6 +319,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
         // 结束编辑时，还没发出去的评论一并放弃
         editor.commentDraft = null
         editor.clearArticleSelection()
+        editor.insertionHandle = null
         focusManager.clearFocus()
         editor.focusedId = null
         editor.focusedCell = null
@@ -473,6 +474,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                         editor.selection.localRange(TITLE_KEY)?.let { range -> titleLayout?.let { if(!range.collapsed) drawPath(it.getPathForRange(range.min,range.max),selectionBackground) } }
                     }.textGestures(editor, TITLE_KEY, minOffset = 0, layout = { titleLayout }).onFocusChanged {
                         titleFocused = it.isFocused
+                        editor.titleFocused = it.isFocused
                         if (it.isFocused) {
                             editor.focusedId = null
                             editor.focusedCell = null

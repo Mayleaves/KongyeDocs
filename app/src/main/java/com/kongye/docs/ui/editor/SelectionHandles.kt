@@ -38,7 +38,8 @@ internal fun Modifier.documentSelectionInput(editor: EditorState): Modifier =
         awaitEachGesture {
             val down = awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Initial)
             val selection = editor.selection
-            val range = selection.range ?: return@awaitEachGesture
+            val range = selection.range
+            if (range == null) { dragInsertionHandle(editor,down); return@awaitEachGesture }
             val viewport = selection.viewport?.takeIf { it.isAttached } ?: return@awaitEachGesture
             val start = selection.caret(range.start) ?: return@awaitEachGesture
             val end = selection.caret(range.end) ?: return@awaitEachGesture
@@ -72,11 +73,66 @@ internal fun Modifier.documentSelectionInput(editor: EditorState): Modifier =
         }
     }
 
+/** Insertion handle hit area: a finger-sized box centred under the caret. */
+private const val INSERTION_HIT_DP = 48
+
+private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.dragInsertionHandle(
+    editor: EditorState, down: androidx.compose.ui.input.pointer.PointerInputChange,
+) {
+    val selection = editor.selection
+    val handle = editor.visibleInsertionHandle ?: return
+    val viewport = selection.viewport?.takeIf { it.isAttached } ?: return
+    val caret = selection.caret(handle) ?: return
+    val local = caret.first-viewport.localToRoot(Offset.Zero)
+    val half = INSERTION_HIT_DP.dp.toPx()/2f
+    if (!Rect(local.x-half,local.y,local.x+half,local.y+half*2).contains(down.position)) return
+    down.consume()
+    // Keep the finger's offset from the caret line, so the caret does not jump on grab.
+    val grab = viewport.localToRoot(down.position)-(caret.first-Offset(0f,caret.second/2f))
+    do {
+        val event = awaitPointerEvent(PointerEventPass.Initial)
+        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+        change.consume()
+        editor.moveInsertionHandle(viewport.localToRoot(change.position)-grab)
+        val pressed = change.pressed
+    } while (pressed)
+}
+
+/** Blue teardrop under a caret placed by a tap; it disappears once the user types. */
+@Composable
+private fun BoxScope.InsertionHandle(editor: EditorState, scroll: ScrollState) {
+    val selection = editor.selection
+    val handle = editor.visibleInsertionHandle ?: return
+    val viewport = selection.viewport ?: return
+    if (!viewport.isAttached) return
+    @Suppress("UNUSED_VARIABLE") val frame = scroll.value + selection.layoutEpoch
+    val caret = selection.caret(handle)?.first ?: return
+    val local = caret-viewport.localToRoot(Offset.Zero)
+    if (local.y < 0 || local.y > viewport.size.height) return
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val color = androidx.compose.foundation.text.selection.LocalTextSelectionColors.current.handleColor
+    val width = 22.dp
+    // Circle of radius r plus a 45° square corner on top: total height r·(1+√2).
+    val height = width/2*(1f+kotlin.math.sqrt(2f))
+    val half = with(density) { width.toPx()/2f }
+    Canvas(Modifier.offset { IntOffset((local.x-half).roundToInt(),local.y.roundToInt()) }
+        .size(width,height).semantics { contentDescription="插入手柄" }) {
+        val r = size.width/2f
+        val cy = size.height-r
+        drawCircle(color,r,Offset(r,cy))
+        val d = r/kotlin.math.sqrt(2f)
+        val path = androidx.compose.ui.graphics.Path().apply {
+            moveTo(r,0f); lineTo(r+d,cy-d); lineTo(r,cy); lineTo(r-d,cy-d); close()
+        }
+        drawPath(path,color)
+    }
+}
+
 /** The stable viewport owns dragging; moving handle drawings never change pointer coordinates. */
 @Composable
 internal fun BoxScope.SelectionHandles(editor: EditorState, scroll: ScrollState) {
     val selection = editor.selection
-    val range = selection.range ?: return
+    val range = selection.range ?: run { InsertionHandle(editor,scroll); return }
     val viewport = selection.viewport ?: return
     if (!viewport.isAttached) return
     @Suppress("UNUSED_VARIABLE") val frame = scroll.value + selection.layoutEpoch
