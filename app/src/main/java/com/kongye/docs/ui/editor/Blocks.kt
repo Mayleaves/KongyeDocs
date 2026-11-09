@@ -213,7 +213,7 @@ private fun TextBlock(b: BlockState, index: Int, editor: EditorState) {
                     editor.layouts[b.id] = it
                     layout = it
                 },
-                modifier = mod.documentTextMenu(editor).onGloballyPositioned { editor.selection.register(b.id,it) }
+                modifier = mod.documentCursorKeys(editor).documentTextMenu(editor).onGloballyPositioned { editor.selection.register(b.id,it) }
                     .drawBehind {
                         val l = layout ?: return@drawBehind
                         commentSpans.forEach { r ->
@@ -288,19 +288,23 @@ internal fun charRangeAt(l: TextLayoutResult, p: Offset, minOffset: Int): Pair<I
 }
 
 /** Text taps and long presses feed one document-wide selection; scrolling stays with the viewport. */
+@Composable
 internal fun Modifier.textGestures(
     editor: EditorState,
     key: String,
     minOffset: Int,
     layout: () -> TextLayoutResult?,
     intercept: (Offset) -> (() -> Unit)? = { null },
-): Modifier = pointerInput(key) {
+): Modifier {
+    val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
+    return pointerInput(key) {
     coroutineScope {
         val selectionScope=this
         var lastUp=0L
         var lastPos=Offset.Zero
         awaitEachGesture {
             val down=awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Initial)
+            editor.cursorNavigation.reset()
             if(down.isConsumed) return@awaitEachGesture
             editor.cancelCharSelect()
             editor.clearArticleSelection()
@@ -318,7 +322,7 @@ internal fun Modifier.textGestures(
             var epoch: Long?=null
             var moved=false
             var upTime=0L
-            suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.observeUntilUp() {
+            suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.observeUntilUp(consumeTap: Boolean = false) {
                 while(true) {
                     val event=awaitPointerEvent(PointerEventPass.Initial)
                     val change=event.changes.firstOrNull { it.id==down.id } ?: return
@@ -327,12 +331,18 @@ internal fun Modifier.textGestures(
                         if(epoch!=null) { editor.cancelCharSelect(); epoch=null }
                     }
                     // Do not cancel merely because BasicTextField consumed this event.
-                    if(!change.pressed) { upTime=change.uptimeMillis; return }
+                    if(!change.pressed) {
+                        upTime=change.uptimeMillis
+                        // Prevent the per-field transparent insertion popup from taking
+                        // this gesture. The document owns the only insertion handle.
+                        if (consumeTap && !moved && epoch == null && !editor.findMode) change.consume()
+                        return
+                    }
                 }
             }
             if(second && range!=null) epoch=editor.armCharSelect(key,range.first,range.second)
             val released=withTimeoutOrNull((viewConfiguration.longPressTimeoutMillis-50).coerceAtLeast(1)) {
-                observeUntilUp(); true
+                observeUntilUp(consumeTap = !second); true
             } ?: false
             if(!released) {
                 if(!moved && range!=null && epoch==null) epoch=editor.armCharSelect(key,range.first,range.second)
@@ -346,12 +356,16 @@ internal fun Modifier.textGestures(
             }
             if(!moved && !second && released) {
                 lastUp=upTime; lastPos=down.position
-                // 单击放下光标：等输入框自己把光标移过去后，在光标下方显示插入手柄
-                selectionScope.launch { withFrameNanos { }; withFrameNanos { }; editor.showInsertionHandle(key) }
+                if (!editor.findMode) layout()?.let { l ->
+                    val offset = l.getOffsetForPosition(down.position).coerceIn(minOffset, l.layoutInput.text.length)
+                    editor.placeCaret(SelectionPoint(key, offset), handle = true)
+                    keyboard?.show()
+                }
             }
             else lastUp=0L
         }
     }
+}
 }
 
 @Composable

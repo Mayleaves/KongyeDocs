@@ -77,6 +77,10 @@ internal class DocumentInputConnection(target: InputConnection, private val cont
         }
     }
     override fun sendKeyEvent(event: KeyEvent): Boolean {
+        // Apply direction keys against the latest document caret before returning.
+        // Forwarding to the old paragraph queues events across an input-session
+        // restart, and rapid repeats can read the same unrecomposed field value.
+        if (main { editor.cursorNavigation.handle(event) }) return true
         val action=when {
             event.isCtrlPressed && event.keyCode==KeyEvent.KEYCODE_A -> android.R.id.selectAll
             event.keyCode==KeyEvent.KEYCODE_COPY || event.isCtrlPressed && event.keyCode==KeyEvent.KEYCODE_C -> android.R.id.copy
@@ -98,6 +102,21 @@ internal class DocumentInputConnection(target: InputConnection, private val cont
         if(editor.selection.active) { editor.selection.replace(""); true }
         else super.deleteSurroundingTextInCodePoints(beforeLength,afterLength)
     }
-    // Keep surrounding/extracted text and composition local to the focused field;
-    // changing their coordinate space can make an IME duplicate the whole article.
+    // Extracted text, offsets and composition stay local. At a paragraph boundary,
+    // expose only its separator: some IMEs check one character before sending Down.
+    // Returning the following paragraph's text would risk duplicating body content.
+    override fun getTextAfterCursor(n: Int, flags: Int): CharSequence? = main {
+        val local = super.getTextAfterCursor(n, flags)
+        if (n <= 0 || local == null || local.isNotEmpty() || editor.titleFocused ||
+            editor.focusedCell != null || editor.commentDraft != null || editor.commentView != null ||
+            editor.findMode || editor.selection.active) return@main local
+        val b = editor.focused?.takeIf { it.type.isText } ?: return@main local
+        if (!b.value.selection.collapsed || b.value.selection.end != b.value.text.length) return@main local
+        // Confirm this connection belongs to that body paragraph, rather than a
+        // dialog field or an input session still waiting for a focus handoff.
+        val extracted = super.getExtractedText(ExtractedTextRequest(), 0) ?: return@main local
+        if (extracted.text?.toString() != b.value.text || extracted.selectionStart != b.value.text.length ||
+            extracted.selectionEnd != b.value.text.length) return@main local
+        if ((editor.blocks.indexOf(b) + 1 until editor.blocks.size).any { editor.blocks[it].type.isText }) "\n" else local
+    }
 }

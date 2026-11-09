@@ -31,6 +31,8 @@
 - **深色模式**：跟随系统、浅色、深色、定时切换
 - **小彩蛋**：「我的」里会随时间变换动作的线条小猫，支持点击互动和待机动作；小鱼干猫碗、热气、毛线球、打呵欠、逗猫棒和小老鼠使用 SVG 路径绘制，玩耍时猫爪、玩具和尾巴一起运动，颜色随主题变化。「关于」里还有落叶动画
 
+键盘自带的方向键及实体键盘方向键可在正文段落之间移动光标：上下键先经过本段折行，到首行 / 末行后进入上一段 / 下一段，经过短段和空段时保留横向位置；左右键可跨段移动。快速连续按键使用最新光标位置。点击后显示的插入手柄与光标对齐，可跨段拖动，拖到正文视口边缘停留时自动滚动。
+
 ## 保存与备份
 
 - 正文会自动写入应用私有目录；“系统自动备份”控制本地版本记录，不是正文保存开关。卸载应用或清除应用数据会删除这些内部文件。
@@ -150,6 +152,15 @@ adb -s DEVICE_SERIAL shell am instrument -w -e only v225 com.kongye.docs.audit.t
 
 ```bash
 adb -s DEVICE_SERIAL shell am instrument -w -e only v226 com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+```
+
+键盘上下跨段光标专项检查（合成文档，覆盖输入法方向键、实体键盘、折行、空段、列表、代码块、正文边界及移动后输入）：
+
+```bash
+adb -s DEVICE_SERIAL shell am instrument -w -e only cursor com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+adb -s DEVICE_SERIAL shell am instrument -w -e only cursor-handles com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+# 当前 CyIME 环形光标面板：真实点击段尾、上下键，不切换输入法
+adb -s DEVICE_SERIAL shell am instrument -w -e only actual-ime com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
 ```
 
 工具直接切评论及相关键盘回归（同上面的独立键盘测试包，共 13 项）：

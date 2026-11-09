@@ -83,13 +83,43 @@ class EditorState(val docId: String, val isNew: Boolean) {
     var pendingFocus by mutableStateOf<PendingFocus?>(null)
     /** 标题输入框是否有焦点（插入手柄判断用） */
     var titleFocused by mutableStateOf(false)
+    internal val titleFocus = FocusRequester()
 
     /**
      * 点在字与字之间放下光标时，光标下方显示蓝色插入手柄（可拖动移动光标）；
      * 开始打字、选中文字或离开这个输入框后，回到普通的文本光标。
-     * 拖动由输入框自带的（透明）插入手柄完成，这里画的手柄始终跟着当前光标。
+     * 点击和拖动由文档统一处理，避免段落自带的透明手柄截住跨段拖动。
      */
     var insertionHandle by mutableStateOf<SelectionPoint?>(null)
+    internal var insertionDragRoot by mutableStateOf<androidx.compose.ui.geometry.Offset?>(null)
+
+    /** Move a caret and its live input session together; no edit or undo entry. */
+    internal fun placeCaret(point: SelectionPoint, handle: Boolean = false, deferFocus: Boolean = false) {
+        cancelCharSelect()
+        pendingFocus = null
+        if (point.key == TITLE_KEY) {
+            title = title.copy(selection = TextRange(point.offset.coerceIn(0, title.text.length)), composition = null)
+            if (!titleFocused) {
+                if (!runCatching { titleFocus.requestFocus() }.getOrDefault(false))
+                    pendingFocus = PendingFocus(TITLE_KEY, point.offset, showKeyboard = false)
+            }
+        } else {
+            val b = blocks.firstOrNull { it.id == point.key && it.type.isText } ?: return
+            b.value = b.value.copy(selection = TextRange(point.offset.coerceIn(1, b.value.text.length)), composition = null)
+            b.typing = null
+            if (deferFocus) {
+                focusedId = b.id
+                focusedCell = null
+                requestFocus(b, point.offset, showKeyboard = false)
+            } else if (focusedId != b.id || titleFocused || focusedCell != null) {
+                val focused = runCatching { b.focus.requestFocus() }.getOrDefault(false)
+                focusedId = b.id
+                focusedCell = null
+                if (!focused) requestFocus(b, point.offset, showKeyboard = false)
+            }
+        }
+        insertionHandle = if (handle) point else null
+    }
 
     private fun caretOf(key: String): Int? {
         val v = if (key == TITLE_KEY) title else blocks.firstOrNull { it.id == key && it.type.isText }?.value ?: return null
@@ -113,14 +143,13 @@ class EditorState(val docId: String, val isNew: Boolean) {
             return SelectionPoint(h.key, caretOf(h.key) ?: return null)
         }
 
-    /** 输入框自带手柄不在时的兜底拖动：光标跟着手指移到这个输入框里最近的位置（不跨输入框） */
+    /** Follow the nearest text caret across paragraphs, including title and empty blocks. */
     fun moveInsertionHandle(root: androidx.compose.ui.geometry.Offset) {
         val current = visibleInsertionHandle ?: return
-        val p = selection.endpointIn(current.key, root) ?: return
+        val p = selection.endpoint(root) ?: return
         if (p == current) return
-        if (p.key == TITLE_KEY) title = title.copy(selection = TextRange(p.offset), composition = null)
-        else blocks.firstOrNull { it.id == p.key }?.let { it.value = it.value.copy(selection = TextRange(p.offset), composition = null) }
-        insertionHandle = p
+        cursorNavigation.reset()
+        placeCaret(p, handle = true)
     }
     var version by mutableIntStateOf(0)
         private set
@@ -156,6 +185,7 @@ class EditorState(val docId: String, val isNew: Boolean) {
     private var charSelect: CharSelect? = null
     private var charSelectEpoch = 0L
     val selection = DocumentSelection(this)
+    internal val cursorNavigation = DocumentCursorNavigation(this)
     val articleSelected get() = selection.all
 
 

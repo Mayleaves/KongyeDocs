@@ -4,6 +4,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.systemGestureExclusion
 import androidx.compose.ui.draw.shadow
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -26,12 +27,19 @@ import androidx.compose.ui.unit.sp
 import com.kongye.docs.ui.theme.Kongye
 import kotlin.math.roundToInt
 
-private fun DocumentSelection.caret(point: SelectionPoint): Pair<Offset,Float>? {
+private fun DocumentSelection.caret(point: SelectionPoint, cursorWidth: Float = 0f): Pair<Offset,Float>? {
     val coords = coordinates[point.key]?.takeIf { it.isAttached } ?: return null
     val layout = editor.layouts[point.key] ?: return null
     val rect = layout.getCursorRect(point.offset.coerceIn(0,layout.layoutInput.text.length))
-    return coords.localToRoot(Offset(rect.left,rect.bottom)) to rect.height
+    val center = if (cursorWidth > 0f) {
+        // Match Compose's 2dp cursor stroke: clamp and snap its centre to pixels.
+        val x = (rect.left + cursorWidth / 2).coerceAtMost(coords.size.width - cursorWidth / 2).coerceAtLeast(cursorWidth / 2)
+        if (cursorWidth.toInt() % 2 == 1) kotlin.math.floor(x) + 0.5f else kotlin.math.round(x)
+    } else rect.left
+    return coords.localToRoot(Offset(center,rect.bottom)) to rect.height
 }
+
+private fun androidx.compose.ui.unit.Density.cursorWidth() = kotlin.math.floor(2.dp.toPx()).coerceAtLeast(1f)
 
 internal fun Modifier.documentSelectionInput(editor: EditorState): Modifier =
     onGloballyPositioned { editor.selection.viewport = it }.pointerInput(editor) {
@@ -82,20 +90,25 @@ private suspend fun androidx.compose.ui.input.pointer.AwaitPointerEventScope.dra
     val selection = editor.selection
     val handle = editor.visibleInsertionHandle ?: return
     val viewport = selection.viewport?.takeIf { it.isAttached } ?: return
-    val caret = selection.caret(handle) ?: return
+    val caret = selection.caret(handle, cursorWidth()) ?: return
     val local = caret.first-viewport.localToRoot(Offset.Zero)
     val half = INSERTION_HIT_DP.dp.toPx()/2f
     if (!Rect(local.x-half,local.y,local.x+half,local.y+half*2).contains(down.position)) return
     down.consume()
     // Keep the finger's offset from the caret line, so the caret does not jump on grab.
     val grab = viewport.localToRoot(down.position)-(caret.first-Offset(0f,caret.second/2f))
-    do {
-        val event = awaitPointerEvent(PointerEventPass.Initial)
-        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-        change.consume()
-        editor.moveInsertionHandle(viewport.localToRoot(change.position)-grab)
-        val pressed = change.pressed
-    } while (pressed)
+    editor.insertionDragRoot = viewport.localToRoot(down.position) - grab
+    try {
+        do {
+            val event = awaitPointerEvent(PointerEventPass.Initial)
+            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+            change.consume()
+            val root = viewport.localToRoot(change.position) - grab
+            editor.insertionDragRoot = root
+            editor.moveInsertionHandle(root)
+            val pressed = change.pressed
+        } while (pressed)
+    } finally { editor.insertionDragRoot = null }
 }
 
 /** Blue teardrop under a caret placed by a tap; it disappears once the user types. */
@@ -106,17 +119,17 @@ private fun BoxScope.InsertionHandle(editor: EditorState, scroll: ScrollState) {
     val viewport = selection.viewport ?: return
     if (!viewport.isAttached) return
     @Suppress("UNUSED_VARIABLE") val frame = scroll.value + selection.layoutEpoch
-    val caret = selection.caret(handle)?.first ?: return
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val caret = selection.caret(handle, with(density) { cursorWidth() })?.first ?: return
     val local = caret-viewport.localToRoot(Offset.Zero)
     if (local.y < 0 || local.y > viewport.size.height) return
-    val density = androidx.compose.ui.platform.LocalDensity.current
     val color = androidx.compose.foundation.text.selection.LocalTextSelectionColors.current.handleColor
     val width = 22.dp
     // Circle of radius r plus a 45° square corner on top: total height r·(1+√2).
     val height = width/2*(1f+kotlin.math.sqrt(2f))
     val half = with(density) { width.toPx()/2f }
     Canvas(Modifier.offset { IntOffset((local.x-half).roundToInt(),local.y.roundToInt()) }
-        .size(width,height).semantics { contentDescription="插入手柄" }) {
+        .size(width,height).systemGestureExclusion().semantics { contentDescription="插入手柄" }) {
         val r = size.width/2f
         val cy = size.height-r
         drawCircle(color,r,Offset(r,cy))
@@ -125,6 +138,24 @@ private fun BoxScope.InsertionHandle(editor: EditorState, scroll: ScrollState) {
             moveTo(r,0f); lineTo(r+d,cy-d); lineTo(r,cy); lineTo(r-d,cy-d); close()
         }
         drawPath(path,color)
+    }
+    LaunchedEffect(editor.insertionDragRoot != null) {
+        while (editor.insertionDragRoot != null) {
+            withFrameNanos { }
+            val root = editor.insertionDragRoot ?: break
+            val y = root.y - viewport.localToRoot(Offset.Zero).y
+            val margin = with(density) { 48.dp.toPx() }
+            val delta = when {
+                y < margin -> -((margin-y)/5).coerceAtMost(28f)
+                y > viewport.size.height-margin -> ((y-viewport.size.height+margin)/5).coerceAtMost(28f)
+                else -> 0f
+            }
+            if (delta != 0f) {
+                scroll.scrollBy(delta)
+                withFrameNanos { }
+                editor.moveInsertionHandle(root)
+            }
+        }
     }
 }
 
@@ -145,7 +176,7 @@ internal fun BoxScope.SelectionHandles(editor: EditorState, scroll: ScrollState)
         if(local.y < 0 || local.y > viewport.size.height) return@forEach
         val width = with(density) { 25.dp.toPx() }
         Canvas(Modifier.offset { IntOffset((local.x-if(left) width else 0f).roundToInt(),local.y.roundToInt()) }
-            .size(25.dp,25.dp).semantics { contentDescription=if(left) "选择起点" else "选择终点" }) {
+            .size(25.dp,25.dp).systemGestureExclusion().semantics { contentDescription=if(left) "选择起点" else "选择终点" }) {
             // Same circle + upper corner geometry and 25dp size as the platform Compose handle.
             val radius=size.width/2f
             drawCircle(color,radius,Offset(radius,radius))

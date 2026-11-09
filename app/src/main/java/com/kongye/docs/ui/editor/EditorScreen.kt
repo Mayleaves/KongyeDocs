@@ -152,8 +152,8 @@ fun EditorScreen(docId: String, isNew: Boolean) {
 @Composable
 private fun EditorScreenContent(docId: String, isNew: Boolean) {
     val selectionBackground=androidx.compose.foundation.text.selection.LocalTextSelectionColors.current.backgroundColor
-    val titleFocus = remember { androidx.compose.ui.focus.FocusRequester() }
     val editor = remember(docId) { EditorSession.obtain(docId, isNew) }
+    val titleFocus = editor.titleFocus
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val keyboard = LocalSoftwareKeyboardController.current

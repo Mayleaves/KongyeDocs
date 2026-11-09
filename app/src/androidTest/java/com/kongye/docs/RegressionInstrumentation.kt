@@ -28,7 +28,10 @@ class RegressionInstrumentation : Instrumentation() {
     private var onlyV224=false
     private var onlyV225=false
     private var onlyV226=false
-    override fun onCreate(arguments: Bundle?) { onlyV226=arguments?.getString("only")=="v226"; onlyV225=arguments?.getString("only")=="v225"; onlyV224=arguments?.getString("only")=="v224"; onlyV223=arguments?.getString("only")=="v223"; onlyToolbarCustomize=arguments?.getString("only")=="toolbar-customize"; onlyCommentHandoff=arguments?.getString("only")=="comment-handoff"; onlyV217=arguments?.getString("only")=="v217"; onlyDock=arguments?.getString("only")=="dock"; onlyV215=arguments?.getString("only")=="v215"; onlyV214=arguments?.getString("only")=="v214"; onlyV213=arguments?.getString("only")=="v213"; onlyCats=arguments?.getString("only")=="cats"; editorModels=arguments?.getString("only")=="editor-models"; if(arguments?.getString("only")=="verify-backups") verifyPaths=arguments.getString("before")!! to arguments.getString("after")!!; manualKeyboard=arguments?.getString("only")=="keyboard"; onlyUi=arguments?.getString("only")=="ui"; onlyEditor=arguments?.getString("only")=="editor"; super.onCreate(arguments); start() }
+    private var onlyCursor=false
+    private var onlyActualIme=false
+    private var onlyCursorHandles=false
+    override fun onCreate(arguments: Bundle?) { onlyActualIme=arguments?.getString("only")=="actual-ime"; onlyCursorHandles=arguments?.getString("only")=="cursor-handles"; onlyCursor=arguments?.getString("only")=="cursor"; onlyV226=arguments?.getString("only")=="v226"; onlyV225=arguments?.getString("only")=="v225"; onlyV224=arguments?.getString("only")=="v224"; onlyV223=arguments?.getString("only")=="v223"; onlyToolbarCustomize=arguments?.getString("only")=="toolbar-customize"; onlyCommentHandoff=arguments?.getString("only")=="comment-handoff"; onlyV217=arguments?.getString("only")=="v217"; onlyDock=arguments?.getString("only")=="dock"; onlyV215=arguments?.getString("only")=="v215"; onlyV214=arguments?.getString("only")=="v214"; onlyV213=arguments?.getString("only")=="v213"; onlyCats=arguments?.getString("only")=="cats"; editorModels=arguments?.getString("only")=="editor-models"; if(arguments?.getString("only")=="verify-backups") verifyPaths=arguments.getString("before")!! to arguments.getString("after")!!; manualKeyboard=arguments?.getString("only")=="keyboard"; onlyUi=arguments?.getString("only")=="ui"; onlyEditor=arguments?.getString("only")=="editor"; super.onCreate(arguments); start() }
     private fun report(code: Int,bundle: Bundle) {
         File(targetContext.cacheDir,"regression-progress.txt").appendText(bundle.getString("stream").orEmpty())
         sendStatus(code,bundle)
@@ -74,6 +77,21 @@ class RegressionInstrumentation : Instrumentation() {
                 V217Regression.run(this,targetContext,reportPass)
                 DockUiRegression.run(this,targetContext,reportPass)
                 finish(Activity.RESULT_OK,Bundle().apply { putString("stream","ALL $passed COMMENT HANDOFF TESTS PASSED\n") })
+                return
+            }
+            if(onlyActualIme) {
+                ActualImeRegression.run(this,targetContext) { name -> passed++; report(0,Bundle().apply { putString("stream","PASS $name\n") }) }
+                finish(Activity.RESULT_OK,Bundle().apply { putString("stream","ALL $passed ACTUAL IME PANEL TESTS PASSED\n") })
+                return
+            }
+            if(onlyCursorHandles) {
+                CursorHandleRegression.run(this,targetContext) { name -> passed++; report(0,Bundle().apply { putString("stream","PASS $name\n") }) }
+                finish(Activity.RESULT_OK,Bundle().apply { putString("stream","ALL $passed CURSOR HANDLE TESTS PASSED\n") })
+                return
+            }
+            if(onlyCursor) {
+                CursorNavigationRegression.run(this,targetContext) { name -> passed++; report(0,Bundle().apply { putString("stream","PASS $name\n") }) }
+                finish(Activity.RESULT_OK,Bundle().apply { putString("stream","ALL $passed CURSOR TESTS PASSED\n") })
                 return
             }
             if(onlyV226) {

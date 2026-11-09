@@ -102,7 +102,7 @@ class DocumentSelection(internal val editor: EditorState) {
         return endpointIn(entry.key,root)
     }
 
-    /** Nearest caret position inside one field (the insertion handle never leaves its field). */
+    /** Nearest caret position inside one field. */
     fun endpointIn(key: String, root: Offset): SelectionPoint? {
         val coords = coordinates[key]?.takeIf { it.isAttached } ?: return null
         val layout = editor.layouts[key] ?: return null
