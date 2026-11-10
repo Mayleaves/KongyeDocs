@@ -33,7 +33,7 @@
 
 键盘自带的方向键及实体键盘方向键可在正文段落之间移动光标：上下键先经过本段折行，到首行 / 末行后进入上一段 / 下一段，经过短段和空段时保留横向位置；左右键可跨段移动。快速连续按键使用最新光标位置。点击后显示的插入手柄与光标对齐，可跨段拖动，拖到正文视口边缘停留时自动滚动。
 
-空叶键盘的「编辑 → 选择」与正文共用跨段选区：左键移动左端点，右键移动右端点，上下键按实际显示行移动最近操作的端点；键盘撤销 / 重做与文档工具栏共用整篇操作历史，包含清单、勾选和格式修改，选择和历史操作保持键盘展开。
+空叶键盘的「编辑 → 选择」与正文共用跨段选区：上键控制上手柄（选区起点），下键控制下手柄（选区终点），按实际显示行移动；左右键微调最近操作的手柄。标准 Android 输入接口统一使用整篇正文坐标，支持其他输入法通过 `setSelection`、Shift 方向键跨段移动 / 选择，以及通过撤销 / 重做菜单、`Ctrl+Z`、`Ctrl+Shift+Z`、`Ctrl+Y` 操作文档工具栏的同一套历史，包含清单、勾选和格式修改。选择和历史操作保持键盘展开。第三方键盘必须实际发送标准编辑命令；仅在键盘内部维护的旧文本历史无法由文档接管。
 
 ## 保存与备份
 
@@ -165,8 +165,10 @@ adb -s DEVICE_SERIAL shell am instrument -w -e only cursor-handles com.kongye.do
 adb -s DEVICE_SERIAL shell am instrument -w -e only selection-clipboard com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
 # 空叶键盘联动：跨显示行和段落的选区端点、整篇共享撤销重做
 adb -s DEVICE_SERIAL shell am instrument -w -e only keyboard-protocol com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
-# 当前 CyIME 环形光标面板：真实点击段尾、上下键，不切换输入法
-adb -s DEVICE_SERIAL shell am instrument -w -e only actual-ime com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+# 通用接口：全文坐标、跨段正反选区、Shift 方向键、组合输入、删除、连续撤销 / 重做
+adb -s DEVICE_SERIAL shell am instrument -w -e only universal-ime com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+# 交互式真机核对：等待真实点击当前输入法的移动、选择及撤销 / 重做按钮（合成文档）
+adb -s DEVICE_SERIAL shell am instrument -w -e only universal-actual com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
 ```
 
 工具直接切评论及相关键盘回归（同上面的独立键盘测试包，共 13 项）：

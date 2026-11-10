@@ -15,10 +15,11 @@ internal class KeyboardSelection(private val editor: EditorState) {
     private var column: Float? = null
     private var expectedRange: DocumentRange? = null
     private var version = -1
+    val engaged get() = left != null
 
     fun end() { left = null; right = null; endpoint = null; column = null; expectedRange = null }
 
-    fun start(): Boolean {
+    fun start(activeStart: Boolean = false): Boolean {
         end()
         val focused = editor.focused?.takeIf { it.type.isText } ?: return false
         val range = editor.selection.range?.takeIf { range ->
@@ -26,7 +27,7 @@ internal class KeyboardSelection(private val editor: EditorState) {
         }
         left = range?.start ?: SelectionPoint(focused.id, focused.value.selection.min.coerceAtLeast(1))
         right = range?.end ?: SelectionPoint(focused.id, focused.value.selection.max.coerceAtLeast(1))
-        activeLeft = false
+        activeLeft = activeStart
         version = editor.version
         expectedRange = editor.selection.range
         endpoint = right
@@ -51,12 +52,14 @@ internal class KeyboardSelection(private val editor: EditorState) {
         return SelectionPoint(next.id, if (forward) 1 else next.value.text.length)
     }
 
-    fun move(direction: String): Boolean {
+    fun reveal(point: SelectionPoint) { endpoint = point }
+
+    fun move(direction: String, chooseHandle: Boolean = true): Boolean {
         if (direction !in listOf("left", "right", "up", "down", "home", "end")) return false
         if (left == null || version != editor.version || expectedRange != editor.selection.range) if (!start()) return false
         val previousSide = activeLeft
-        if (direction == "left") activeLeft = true
-        if (direction == "right") activeLeft = false
+        if (chooseHandle && direction == "up") activeLeft = true
+        if (chooseHandle && direction == "down") activeLeft = false
         val point = (if (activeLeft) left else right) ?: return false
         val next = when (direction) {
             "left", "right" -> { column = null; horizontal(point, direction == "right") }

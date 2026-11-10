@@ -189,6 +189,8 @@ class EditorState(val docId: String, val isNew: Boolean) {
     val selection = DocumentSelection(this)
     internal val cursorNavigation = DocumentCursorNavigation(this)
     internal val keyboardSelection = KeyboardSelection(this)
+    // Reject callbacks queued by a paragraph field before a synchronous IME edit.
+    internal fun invalidateImeCallbacks() { inputEpoch++ }
     val articleSelected get() = selection.all
 
 

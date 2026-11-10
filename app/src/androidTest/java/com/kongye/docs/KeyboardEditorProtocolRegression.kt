@@ -130,42 +130,43 @@ object KeyboardEditorProtocolRegression {
                     passed("READY-$name")
                     watch(name) { waitFor(name, timeout = 180000, condition = condition) }
                 }
-                focus(0, main { editor().blocks[0].value.text.length })
-                val end = main { editor().blocks[0].value.text.length }
-                stage("actual-select-then-right-crosses-to-empty", { main { val e = editor(); e.selection.range?.start == SelectionPoint(e.blocks[0].id,end) && e.selection.range?.end == SelectionPoint(e.blocks[1].id,1) } })
-                stage("actual-right-crosses-empty-to-todo", { main { editor().selection.range?.end?.key == editor().blocks[2].id } })
-                val fixedRight = range().end
-                stage("actual-left-controls-left-handle", { main { editor().selection.range?.start?.offset == end - 1 && editor().selection.range?.end == fixedRight } })
-                stage("actual-up-moves-left-handle-by-visual-line", { main { val e = editor(); val p = e.selection.range?.start; p != null && e.layouts[p.key]!!.getLineForOffset(p.offset) < e.layouts[p.key]!!.lineCount - 1 && e.selection.range?.end == fixedRight } })
-                stage("actual-down-restores-left-handle-line", { main { val e = editor(); e.selection.range?.start == SelectionPoint(e.blocks[0].id,end - 1) && e.selection.range?.end == fixedRight } })
-                passed("actual-selection-panel-left-right-up-crosses-lines-and-paragraphs")
+                val middle=main { val e=editor(); e.layouts[e.blocks[0].id]!!.getLineStart(2)+5 }
+                focus(0,middle)
+                stage("actual-up-controls-upper-handle", { main { val e=editor(); e.selection.range?.let { e.layouts[it.start.key]!!.getLineForOffset(it.start.offset)==1 && it.end.offset==middle }==true } })
+                val upper=range().start
+                stage("actual-down-controls-lower-handle", { main { editor().selection.range?.let { it.start==upper && it.end.offset>middle }==true } })
+                val lower=range().end
+                stage("actual-left-adjusts-active-lower-handle", { main { editor().selection.range?.let { it.start==upper && it.end.offset==lower.offset-1 }==true } })
+                stage("actual-right-restores-active-lower-handle", { main { editor().selection.range?.let { it.start==upper && it.end==lower }==true } })
+                stage("actual-up-returns-to-upper-handle", { main { editor().selection.range?.let { it.start.offset<upper.offset && it.end==lower }==true } })
+                passed("actual-upper-lower-handles-with-keyboard-open")
                 stage("finish-actual-selection", { control.exists() })
                 control.delete()
                 main { editor().keyboardSelection.end(); editor().clearArticleSelection() }
             } else {
-                focus(0, 8)
+                val middle = main { val e=editor(); e.layouts[e.blocks[0].id]!!.getLineStart(2)+5 }
+                focus(0,middle)
                 val original = state()
-                watch("handle selection") {
-                    command("SELECTION_START"); move("left")
-                    check(range().start.offset == 7 && range().end.offset == 8)
-                    move("right"); check(range().start.offset == 7 && range().end.offset == 9)
-                    move("left"); check(range().start.offset == 6 && range().end.offset == 9)
+                watch("upper and lower handles") {
+                    command("SELECTION_START"); move("up")
+                    val upper=range().start; val lower=range().end
+                    main { val e=editor(); check(e.layouts[upper.key]!!.getLineForOffset(upper.offset)==1) }
+                    check(lower.offset==middle)
+                    move("down"); check(range().start==upper && range().end.offset>middle)
+                    val expanded=range().end
+                    move("left"); check(range().start==upper && range().end.offset==expanded.offset-1)
+                    move("right"); check(range().start==upper && range().end==expanded)
+                    move("up"); check(range().start.offset<upper.offset && range().end==expanded)
                 }
-                passed("left-and-right-keys-control-independent-selection-handles-with-keyboard-open")
-                move("right")
-                val fixedLeft = range().start
-                val before = range().end
-                move("down")
-                main { val e = editor(); val after = e.selection.range!!.end; check(e.selection.range!!.start == fixedLeft); check(e.layouts[after.key]!!.getLineForOffset(after.offset) == e.layouts[before.key]!!.getLineForOffset(before.offset) + 1) }
-                move("up"); check(range().end == before)
-                passed("vertical-selection-uses-wrapped-visual-lines-and-restores-column")
+                passed("up-controls-upper-handle-down-controls-lower-and-horizontal-arrows-adjust-active-handle")
                 val end = main { editor().blocks[0].value.text.length }
                 focus(0, end); command("SELECTION_START"); move("right")
                 main { val e = editor(); check(e.selection.range == DocumentRange(SelectionPoint(e.blocks[0].id,end), SelectionPoint(e.blocks[1].id,1))) }
                 move("right"); main { check(editor().selection.range!!.end == SelectionPoint(editor().blocks[2].id,1)) }
                 val fixed = range().end
-                move("left"); check(range().start.offset == end - 1 && range().end == fixed)
                 move("up"); check(range().end == fixed && range().start.offset < end - 1)
+                val upper=range().start
+                move("left"); check(range().start.offset == upper.offset - 1 && range().end == fixed)
                 passed("selection-crosses-paragraph-boundary-empty-paragraph-and-list-with-fixed-opposite-handle")
                 focus(0, end); command("SELECTION_START"); move("down")
                 main { check(editor().selection.range!!.end.key == editor().blocks[1].id) }

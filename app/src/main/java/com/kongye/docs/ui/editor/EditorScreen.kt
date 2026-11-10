@@ -238,12 +238,14 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
         if (b != null) {
             b.value = b.value.copy(selection = TextRange(pf.pos.coerceIn(1, b.value.text.length)))
             withFrameNanos { }
+            if(editor.pendingFocus!=pf) return@LaunchedEffect
             runCatching { b.focus.requestFocus() }
             editor.focusedId = b.id
         }
         if (pf.blockId == TITLE_KEY) {
             editor.title=editor.title.copy(selection=TextRange(pf.pos.coerceIn(0,editor.title.text.length)))
             withFrameNanos { }
+            if(editor.pendingFocus!=pf) return@LaunchedEffect
             runCatching { titleFocus.requestFocus() }
         }
         if(pf.showKeyboard) {

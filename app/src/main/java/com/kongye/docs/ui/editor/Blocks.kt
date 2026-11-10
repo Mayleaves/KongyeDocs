@@ -201,7 +201,7 @@ private fun TextBlock(b: BlockState, index: Int, editor: EditorState) {
         }
         val inputEpoch=editor.inputEpoch
         val field: @Composable (Modifier) -> Unit = { mod ->
-            DocumentBodyInput {
+            DocumentBodyInput(b.id) {
             DocumentSelectionDrawing {
             BasicTextField(
                 // The document draws the touch selection. Keep only a native caret

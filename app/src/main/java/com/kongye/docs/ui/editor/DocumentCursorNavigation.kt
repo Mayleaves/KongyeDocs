@@ -21,6 +21,17 @@ internal class DocumentCursorNavigation(private val editor: EditorState) {
     fun reset() { column = null; expected = null; expectedText = null }
 
     fun handle(event: KeyEvent): Boolean {
+        if(editor.focusedId!=null && !editor.titleFocused && editor.focusedCell==null && !editor.findMode && editor.commentDraft==null && editor.commentView==null) {
+            val undo=event.isCtrlPressed && event.keyCode==KeyEvent.KEYCODE_Z && !event.isShiftPressed
+            val redo=event.isCtrlPressed && (event.keyCode==KeyEvent.KEYCODE_Y || event.keyCode==KeyEvent.KEYCODE_Z && event.isShiftPressed)
+            if(undo || redo) { if(event.action==KeyEvent.ACTION_DOWN) { if(redo) editor.redo() else editor.undo() }; return true }
+            if(event.isShiftPressed && !event.isCtrlPressed && !event.isAltPressed && event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_LEFT,KeyEvent.KEYCODE_DPAD_RIGHT,KeyEvent.KEYCODE_DPAD_UP,KeyEvent.KEYCODE_DPAD_DOWN)) {
+                if(event.action==KeyEvent.ACTION_DOWN) editor.keyboardSelection.move(when(event.keyCode) {
+                    KeyEvent.KEYCODE_DPAD_LEFT -> "left"; KeyEvent.KEYCODE_DPAD_RIGHT -> "right"; KeyEvent.KEYCODE_DPAD_UP -> "up"; else -> "down"
+                },chooseHandle=false)
+                return true
+            }
+        }
         val arrow = event.keyCode in listOf(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN,
             KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT)
         if (!arrow || event.isShiftPressed || event.isCtrlPressed || event.isAltPressed || event.isMetaPressed) {

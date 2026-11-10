@@ -174,7 +174,7 @@ object CursorNavigationRegression {
 
             val paragraphEnd = main { editor().blocks[0].value.text.length }
             focus(0, 2)
-            main { check(connection()!!.setSelection(paragraphEnd, paragraphEnd)) }
+            main { check(connection()!!.setSelection(paragraphEnd - 1, paragraphEnd - 1)) }
             waitFor("IME sets caret at exact paragraph end") { main { editor().blocks[0].value.selection == TextRange(paragraphEnd) } }
             arrow(true)
             check(at(1, 0)) { "Down after IME setSelection to paragraph end did not cross" }
@@ -183,16 +183,18 @@ object CursorNavigationRegression {
             focus(0, paragraphEnd)
             main {
                 val input = connection()!!
-                val local = editor().blocks[0].value.text
-                check(input.getTextAfterCursor(1, 0)?.toString() == "\n") { "Keyboard preflight sees false document end" }
-                check(input.getTextAfterCursor(256, 0)?.toString() == "\n") { "Next paragraph text leaked into local input session" }
-                check(input.getExtractedText(android.view.inputmethod.ExtractedTextRequest(), 0)?.text?.toString() == local) { "Extracted text must remain local to prevent article duplication" }
-                check(input.getTextBeforeCursor(1000, 0)?.toString() == local)
+                val e=editor()
+                val first=e.blocks[0].text
+                val whole=e.blocks.joinToString("\n") { if(it.type.isText) it.text else "\uFFFC" }
+                check(input.getTextAfterCursor(1,0)?.toString()=="\n")
+                check(input.getTextAfterCursor(256,0)?.toString()==whole.drop(first.length).take(256))
+                check(input.getExtractedText(android.view.inputmethod.ExtractedTextRequest(),0)?.text?.toString()==whole)
+                check(input.getTextBeforeCursor(1000,0)?.toString()==first)
             }
             val documentEnd = main { editor().blocks.last().value.text.length }
             focus(7, documentEnd)
             main { check(connection()!!.getTextAfterCursor(1, 0).isNullOrEmpty()) { "Real document end exposes a false paragraph" } }
-            passed("keyboard-preflight-sees-only-separator-at-paragraph-end-and-empty-at-document-end")
+            passed("keyboard-extracted-surrounding-text-share-document-offsets-and-stop-at-document-end")
 
             fun burst(key: Int, count: Int) = main {
                 val input = connection() ?: error("No connection for burst")
