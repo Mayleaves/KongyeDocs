@@ -253,8 +253,22 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
         editor.pendingFocus = null
     }
 
-    LaunchedEffect(editor.selection.active,editor.selection.fromKeyboard) {
-        if (editor.selection.active && !editor.selection.fromKeyboard) { focusManager.clearFocus(); keyboard?.hide(); titleFocused=false; panel=null }
+    // Keep the moving selection handle above the keyboard without transferring focus.
+    LaunchedEffect(editor.keyboardSelection.endpoint) {
+        val point = editor.keyboardSelection.endpoint ?: return@LaunchedEffect
+        val viewport = editor.selection.viewport?.takeIf { it.isAttached } ?: return@LaunchedEffect
+        val coordinates = editor.selection.coordinates[point.key]?.takeIf { it.isAttached } ?: return@LaunchedEffect
+        val layout = editor.layouts[point.key] ?: return@LaunchedEffect
+        val rect = layout.getCursorRect(point.offset.coerceIn(1, layout.layoutInput.text.length))
+        val local = coordinates.localToRoot(androidx.compose.ui.geometry.Offset(0f,rect.top)).y -
+            viewport.localToRoot(androidx.compose.ui.geometry.Offset.Zero).y
+        val margin = 24f
+        val delta = when {
+            local < margin -> local - margin
+            local + rect.height > viewport.size.height - margin -> local + rect.height - viewport.size.height + margin
+            else -> 0f
+        }
+        if (delta != 0f) scroll.scrollTo((scroll.value + delta).toInt().coerceAtLeast(0))
     }
 
     // 新建的空白文档直接聚焦正文，方便立即输入
@@ -464,7 +478,8 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                 val titleEpoch=editor.inputEpoch
                 DocumentSelectionDrawing {
                 BasicTextField(
-                    value = editor.title,
+                    value = if (editor.selection.active && !editor.selection.fromKeyboard)
+                        editor.title.copy(selection = TextRange(editor.title.selection.end)) else editor.title,
                     onValueChange = { if(titleGeneration==editor.inputGeneration && titleEpoch==editor.inputEpoch) editor.onTitleChange(it) },
                     readOnly = editor.findMode,
                     textStyle = TextStyle(fontSize = TITLE_SIZE, lineHeight = TITLE_LINE, fontWeight = FontWeight.Bold, color = Kongye.Ink),

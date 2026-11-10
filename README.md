@@ -19,7 +19,7 @@
 - **我的**：顶部显示文件、文件夹和收藏数量，不计回收站内的条目；收藏与首页收藏列表采用相同范围
 - **首页**：「最近」「收藏」「创建」三栏，左右滑动切换
 - **搜索**：搜索标题、正文和评论，可按时间和类型筛选
-- **编辑器**：标题、有序 / 无序列表、待办、引用、代码块、分割线、图片、表格、链接；加粗、斜体、下划线、删除线、文字颜色、背景高亮；段落首行缩进；正文跨段选择、输入法全选（只选正文，不包含文档标题）；撤销 / 重做保持键盘展开；二级工具菜单替换键盘区域，工具栏位置和高度保持不变，面板之间切换保持展开；自定义工具栏在编辑器底部内嵌显示，平时隐藏底部操作，长按三横拖动柄后才允许拖动排序，并显示取消、恢复默认、完成三个图标；取消恢复本次打开前的顺序，完成后返回键盘
+- **编辑器**：标题、有序 / 无序列表、待办、引用、代码块、分割线、图片、表格、链接；加粗、斜体、下划线、删除线、文字颜色、背景高亮；段落首行缩进；正文跨段选择、输入法全选（只选正文，不包含文档标题）；双击 / 长按 / 跨段选择及全选保持键盘展开，可直接输入替换；清单通过键盘纯文字剪贴板粘贴回正文时恢复可勾选状态和缩进；撤销 / 重做保持键盘展开；二级工具菜单替换键盘区域，工具栏位置和高度保持不变，面板之间切换保持展开；自定义工具栏在编辑器底部内嵌显示，平时隐藏底部操作，长按三横拖动柄后才允许拖动排序，并显示取消、恢复默认、完成三个图标；取消恢复本次打开前的顺序，完成后返回键盘
 - **更新提示**：“我的 → 关于”检查 GitHub 正式 Release，发现新版本时最多显示三条重点；构建和校验细节保留在 GitHub，下载、校验与系统确认安装流程保持不变
 - **Markdown 快捷输入**：`#`、`-`、`1.`、`[]`、`>`、```` ``` ````、`---` 加空格即可转换
 - **评论**：选中文字添加评论，可回复、结束评论，查看全部评论；从文字样式、段落或插入工具直接切评论时共用键盘区域，避免先收回再展开；取消添加时直接恢复编辑工具栏，键盘保持展开，可立即继续编辑正文
@@ -32,6 +32,8 @@
 - **小彩蛋**：「我的」里会随时间变换动作的线条小猫，支持点击互动和待机动作；小鱼干猫碗、热气、毛线球、打呵欠、逗猫棒和小老鼠使用 SVG 路径绘制，玩耍时猫爪、玩具和尾巴一起运动，颜色随主题变化。「关于」里还有落叶动画
 
 键盘自带的方向键及实体键盘方向键可在正文段落之间移动光标：上下键先经过本段折行，到首行 / 末行后进入上一段 / 下一段，经过短段和空段时保留横向位置；左右键可跨段移动。快速连续按键使用最新光标位置。点击后显示的插入手柄与光标对齐，可跨段拖动，拖到正文视口边缘停留时自动滚动。
+
+空叶键盘的「编辑 → 选择」与正文共用跨段选区：左键移动左端点，右键移动右端点，上下键按实际显示行移动最近操作的端点；键盘撤销 / 重做与文档工具栏共用整篇操作历史，包含清单、勾选和格式修改，选择和历史操作保持键盘展开。
 
 ## 保存与备份
 
@@ -159,6 +161,10 @@ adb -s DEVICE_SERIAL shell am instrument -w -e only v226 com.kongye.docs.audit.t
 ```bash
 adb -s DEVICE_SERIAL shell am instrument -w -e only cursor com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
 adb -s DEVICE_SERIAL shell am instrument -w -e only cursor-handles com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+# 选字逐帧保持键盘、原生清单的键盘纯文字复制粘贴与撤销重做
+adb -s DEVICE_SERIAL shell am instrument -w -e only selection-clipboard com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
+# 空叶键盘联动：跨显示行和段落的选区端点、整篇共享撤销重做
+adb -s DEVICE_SERIAL shell am instrument -w -e only keyboard-protocol com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
 # 当前 CyIME 环形光标面板：真实点击段尾、上下键，不切换输入法
 adb -s DEVICE_SERIAL shell am instrument -w -e only actual-ime com.kongye.docs.audit.test/com.kongye.docs.RegressionInstrumentation
 ```

@@ -183,7 +183,7 @@ fun DocContent.plainText(): String = blocks.joinToString("\n") { b ->
         BlockType.DIVIDER -> "———"
         BlockType.IMAGE -> "[图片]"
         BlockType.TABLE -> b.table.joinToString("\n") { it.joinToString("\t") }
-        BlockType.TODO -> (if (b.checked) "☑ " else "☐ ") + b.text
+        BlockType.TODO -> "  ".repeat(b.indent) + (if (b.checked) "☑ " else "☐ ") + b.text
         BlockType.BULLET -> "• " + b.text
         else -> if (b.firstIndent && b.type.canFirstIndent) "　　" + b.text else b.text
     }

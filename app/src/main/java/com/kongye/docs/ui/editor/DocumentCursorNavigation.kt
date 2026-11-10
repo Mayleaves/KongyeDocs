@@ -13,6 +13,7 @@ internal fun Modifier.documentCursorKeys(editor: EditorState): Modifier = onPrev
 
 /** Keep the preferred screen column while moving through wrapped and short paragraphs. */
 internal class DocumentCursorNavigation(private val editor: EditorState) {
+    internal data class VerticalStep(val point: SelectionPoint, val column: Float)
     private var column: Float? = null
     private var expected: SelectionPoint? = null
     private var expectedText: String? = null
@@ -30,6 +31,7 @@ internal class DocumentCursorNavigation(private val editor: EditorState) {
         if (editor.titleFocused || editor.focusedCell != null || editor.findMode || editor.commentDraft != null) return false
         if (event.action == KeyEvent.ACTION_UP) return true
         if (event.action != KeyEvent.ACTION_DOWN) return false
+        editor.keyboardSelection.end()
         val forward = event.keyCode == KeyEvent.KEYCODE_DPAD_DOWN || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT
         editor.selection.range?.let { range ->
             val point = if (forward) range.end else range.start
@@ -70,13 +72,27 @@ internal class DocumentCursorNavigation(private val editor: EditorState) {
         val source = editor.blocks.firstOrNull { it.id == key && it.type.isText } ?: return false
         val value = source.value
         if (!value.selection.collapsed) return false
-        val layout = editor.layouts[key]?.takeIf { it.layoutInput.text.text == value.text } ?: return false
-        val caret = value.selection.end.coerceIn(1, value.text.length)
+        val point = SelectionPoint(key, value.selection.end.coerceIn(1, value.text.length))
+        val preferred = column?.takeIf { expected == point && expectedText == value.text }
+        val step = vertical(point, down, preferred) ?: return false
+        source.value = source.value.copy(composition = null)
+        editor.placeCaret(step.point, deferFocus = true)
+        column = step.column
+        expected = step.point
+        expectedText = editor.blocks.first { it.id == step.point.key }.value.text
+        return true
+    }
+
+    /** Pure hit testing shared by caret navigation and document-wide keyboard selection. */
+    internal fun vertical(point: SelectionPoint, down: Boolean, preferredColumn: Float? = null): VerticalStep? {
+        val key = point.key
+        val source = editor.blocks.firstOrNull { it.id == key && it.type.isText } ?: return null
+        val value = source.value
+        val layout = editor.layouts[key]?.takeIf { it.layoutInput.text.text == value.text } ?: return null
+        val caret = point.offset.coerceIn(1, value.text.length)
         fun origin(id: String): Float = editor.selection.coordinates[id]?.takeIf { it.isAttached }
             ?.localToRoot(Offset.Zero)?.x ?: 0f
-        val point = SelectionPoint(key, caret)
-        val x = column?.takeIf { expected == point && expectedText == value.text }
-            ?: (origin(key) + layout.getCursorRect(caret).left)
+        val x = preferredColumn ?: (origin(key) + layout.getCursorRect(caret).left)
         val line = layout.getLineForOffset(caret)
         val nextLine = line + if (down) 1 else -1
         var target = source
@@ -89,13 +105,11 @@ internal class DocumentCursorNavigation(private val editor: EditorState) {
             if (adjacent == null) {
                 // Match ordinary text fields at the beginning/end of the document.
                 val end = if (down) value.text.length else 1
-                editor.placeCaret(SelectionPoint(key, end), deferFocus = true)
-                reset()
-                return true
+                return VerticalStep(SelectionPoint(key, end), x)
             }
             target = editor.blocks[adjacent]
             targetLayout = editor.layouts[target.id]?.takeIf { it.layoutInput.text.text == target.value.text }
-                ?: return false
+                ?: return null
             targetLine = if (down) 0 else targetLayout.lineCount - 1
         }
         val y = (targetLayout.getLineTop(targetLine) + targetLayout.getLineBottom(targetLine)) / 2f
@@ -108,11 +122,6 @@ internal class DocumentCursorNavigation(private val editor: EditorState) {
             offset = BreakIterator.getCharacterInstance().apply { setText(target.value.text) }
                 .preceding(offset).coerceAtLeast(1)
         }
-        source.value = source.value.copy(composition = null)
-        editor.placeCaret(SelectionPoint(target.id, offset), deferFocus = true)
-        column = x
-        expected = SelectionPoint(target.id, offset)
-        expectedText = target.value.text
-        return true
+        return VerticalStep(SelectionPoint(target.id, offset), x)
     }
 }

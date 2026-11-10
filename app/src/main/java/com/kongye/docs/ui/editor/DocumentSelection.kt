@@ -39,6 +39,7 @@ class DocumentSelection(internal val editor: EditorState) {
     private fun compare(a: SelectionPoint, b: SelectionPoint): Int = if (a.key == b.key) a.offset.compareTo(b.offset) else index(a.key).compareTo(index(b.key))
 
     fun set(a: SelectionPoint, b: SelectionPoint, entire: Boolean = false) {
+        val inputFocus = editor.focusedId
         val left = point(a); val right = point(b)
         if (left == right && !entire) return
         range = if (compare(left,right) <= 0) DocumentRange(left,right) else DocumentRange(right,left)
@@ -46,7 +47,8 @@ class DocumentSelection(internal val editor: EditorState) {
         fromKeyboard = false
         editor.pendingFocus = null
         sync()
-        editor.focusedId = range!!.start.key.takeIf { it != TITLE_KEY }
+        editor.focusedId = inputFocus?.takeIf { containsBlock(it) }
+            ?: range!!.start.key.takeIf { it != TITLE_KEY && !editor.titleFocused }
         editor.focusedCell = null
     }
 
@@ -87,7 +89,10 @@ class DocumentSelection(internal val editor: EditorState) {
         val pieces = mutableListOf<String>()
         localRange(TITLE_KEY)?.let { pieces += editor.title.text.substring(it.min,it.max) }
         editor.blocks.forEach { b ->
-            if (b.type.isText) localRange(b.id)?.let { pieces += b.value.text.substring(it.min,it.max) }
+            if (b.type.isText) localRange(b.id)?.let {
+                pieces += if (b.type == BlockType.TODO && it.min == 1 && it.max == b.value.text.length)
+                    DocContent(listOf(b.toBlock())).plainText() else b.value.text.substring(it.min,it.max)
+            }
             else if (containsBlock(b.id)) pieces += DocContent(listOf(b.toBlock())).plainText()
         }
         return pieces.joinToString("\n")
@@ -163,6 +168,7 @@ class DocumentSelection(internal val editor: EditorState) {
                 var offset = 0
                 val kept = remaining.split('\n').map { line ->
                     val block = BlockState(end.toBlock().copy(id=newId(),text=line,spans=clip(spans,offset,offset+line.length)))
+                    block.restoreClipboardChecklist()
                     offset += line.length+1
                     block
                 }
@@ -184,16 +190,23 @@ class DocumentSelection(internal val editor: EditorState) {
                 return
             }
             val lines = combined.split('\n')
+            val retained = editor.focused?.takeIf { it in editor.blocks.subList(si, ei + 1) && it.type.isText } ?: first
             var offset = 0
             val blocks = lines.mapIndexed { i,line ->
-                val block = BlockState(first.toBlock().copy(id=newId(),type=if(i==0) first.type else BlockType.TEXT,text=line,spans=clip(styles,offset,offset+line.length)))
+                val data = first.toBlock().copy(id=if(i==0) retained.id else newId(),type=if(i==0) first.type else BlockType.TEXT,text=line,spans=clip(styles,offset,offset+line.length))
+                val block = if (i == 0) retained.apply { restore(data, 1 + prefix.length + insertion.substringBefore('\n').length) } else BlockState(data)
                 offset += line.length+1
                 block
+            }
+            var caret = 1+(prefix+insertion).substringAfterLast('\n').length
+            blocks.forEachIndexed { i, block ->
+                val removed = block.restoreClipboardChecklist()
+                if (i == blocks.lastIndex) caret = (caret - removed).coerceIn(1, block.value.text.length)
             }
             clear()
             repeat(ei-si+1) { editor.blocks.removeAt(si) }
             editor.blocks.addAll(si,blocks)
-            editor.requestFocus(blocks.last(),1+(prefix+insertion).substringAfterLast('\n').length)
+            editor.requestFocus(blocks.last(),caret)
         }
         editor.selectionEdited()
     }

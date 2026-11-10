@@ -149,6 +149,7 @@ class EditorState(val docId: String, val isNew: Boolean) {
         val p = selection.endpoint(root) ?: return
         if (p == current) return
         cursorNavigation.reset()
+        keyboardSelection.end()
         placeCaret(p, handle = true)
     }
     var version by mutableIntStateOf(0)
@@ -182,10 +183,12 @@ class EditorState(val docId: String, val isNew: Boolean) {
     private val undoStack = ArrayDeque<Snap>()
     private val redoStack = ArrayDeque<Snap>()
     private var lastTypingAt = 0L
+    private var lastTypingGroup: String? = null
     private var charSelect: CharSelect? = null
     private var charSelectEpoch = 0L
     val selection = DocumentSelection(this)
     internal val cursorNavigation = DocumentCursorNavigation(this)
+    internal val keyboardSelection = KeyboardSelection(this)
     val articleSelected get() = selection.all
 
 
@@ -255,20 +258,22 @@ class EditorState(val docId: String, val isNew: Boolean) {
 
     fun replaceArticleSelection(text: String) {
         checkpoint()
-        val retained=focused?.takeIf { selection.fromKeyboard && it.type.isText && !text.contains('\n') && !text.contains('\r') }
+        val retained=focused?.takeIf { it.type.isText && !text.contains('\n') && !text.contains('\r') }
         clearArticleSelection()
         if(retained!=null) {
             retained.value=TextFieldValue(ZWS+text,TextRange(1+text.length))
             retained.spans=emptyList(); retained.typing=null
+            retained.restoreClipboardChecklist()
             blocks.clear(); blocks+=retained
             focusedId=retained.id; focusedCell=null
             lastTypingAt=SystemClock.uptimeMillis()
+            lastTypingGroup="${retained.id}:typing"
             changed()
             return
         }
         inputGeneration++
         blocks.clear()
-        text.replace("\r\n","\n").replace('\r','\n').split('\n').forEach { blocks+=BlockState(Block(text=it)) }
+        text.replace("\r\n","\n").replace('\r','\n').split('\n').forEach { blocks+=BlockState(Block(text=it)).also { b -> b.restoreClipboardChecklist() } }
         focusedCell=null
         blocks.last().let { requestFocus(it,it.value.text.length) }
         changed()
@@ -296,22 +301,26 @@ class EditorState(val docId: String, val isNew: Boolean) {
         canUndo = true
         canRedo = false
         lastTypingAt = 0L
+        lastTypingGroup = null
     }
 
     /** 连续输入合并为一步撤销：停顿超过 1 秒才记录新的撤销点 */
-    private fun typingCheckpoint() {
+    private fun typingCheckpoint(group: String = "title") {
         val now = SystemClock.uptimeMillis()
-        if (now - lastTypingAt > 1000) checkpoint()
+        if (now - lastTypingAt > 1000 || group != lastTypingGroup) checkpoint()
         lastTypingAt = now
+        lastTypingGroup = group
     }
 
     fun undo(showKeyboard: Boolean = true) {
+        keyboardSelection.end()
         val s = undoStack.removeLastOrNull() ?: return
         redoStack.addLast(snap())
         restore(s,showKeyboard)
     }
 
     fun redo(showKeyboard: Boolean = true) {
+        keyboardSelection.end()
         val s = redoStack.removeLastOrNull() ?: return
         undoStack.addLast(snap())
         restore(s,showKeyboard)
@@ -430,7 +439,7 @@ class EditorState(val docId: String, val isNew: Boolean) {
         val spans = adjustSpans(b.spans, old.text, nv.text, typing)
         if (b.type != BlockType.CODE && nv.text.contains('\n')) {
             checkpoint()
-            splitLines(b, nv, spans)
+            splitLines(b, nv, spans, restoreChecklist = insertedText(old.text, nv.text).length > 1)
             changed()
             return
         }
@@ -442,9 +451,12 @@ class EditorState(val docId: String, val isNew: Boolean) {
             changed()
             return
         }
-        typingCheckpoint()
+        // Converting a composing spelling to a shorter Chinese word is still
+        // the same input operation, rather than a separate deletion.
+        typingCheckpoint("${b.id}:${if (nv.text.length < old.text.length && old.composition == null && nv.composition == null) "delete" else "typing"}")
         b.spans = spans
         b.value = nv
+        if (insertedText(old.text, nv.text).length > 1) b.restoreClipboardChecklist()
         if (nv.composition == null) markdownShortcut(b)
         changed()
     }
@@ -458,7 +470,7 @@ class EditorState(val docId: String, val isNew: Boolean) {
     private fun isCodeExit(old: TextFieldValue, nv: TextFieldValue) =
         nv.text.length == old.text.length + 1 && nv.text.endsWith("\n\n") && nv.selection.start == nv.text.length
 
-    private fun splitLines(b: BlockState, nv: TextFieldValue, spans: List<StyleRange>) {
+    private fun splitLines(b: BlockState, nv: TextFieldValue, spans: List<StyleRange>, restoreChecklist: Boolean = false) {
         val body = nv.text.substring(1)
         val parts = body.split('\n')
         val bodySpans = spans.shifted(-1)
@@ -517,6 +529,10 @@ class EditorState(val docId: String, val isNew: Boolean) {
                 break
             }
             acc += part.length + 1
+        }
+        if (restoreChecklist) (listOf(b) + created).forEach { piece ->
+            val removed = piece.restoreClipboardChecklist()
+            if (piece === target) pos = (pos - removed).coerceIn(1, piece.value.text.length)
         }
         requestFocus(target, pos)
     }

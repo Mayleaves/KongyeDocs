@@ -4,6 +4,7 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.os.Handler
 import android.os.Looper
+import android.os.Bundle
 import android.view.KeyEvent
 import android.view.inputmethod.ExtractedTextRequest
 import android.view.inputmethod.InputConnection
@@ -22,15 +23,38 @@ internal fun DocumentInput(editor: EditorState, content: @Composable () -> Unit)
     val interceptor=remember(editor,context) {
         PlatformTextInputInterceptor { request,next ->
             next.startInputMethod(PlatformTextInputMethodRequest { info ->
-                DocumentInputConnection(request.createInputConnection(info),context,editor)
+                val target = request.createInputConnection(info)
+                // The body field marks its own session. Text may still be catching
+                // up after undo/focus changes, so comparing extracted text here can
+                // incorrectly disable document commands for an entire IME session.
+                val documentInput = info.extras?.getInt("com.kongye.input.EDITOR_PROTOCOL") == 1
+                DocumentInputConnection(target,context,editor,documentInput)
             })
         }
     }
     InterceptPlatformTextInput(interceptor,content)
 }
 
+/** Identify body sessions without granting document commands to titles or dialogs. */
+@Composable
+internal fun DocumentBodyInput(content: @Composable () -> Unit) {
+    val interceptor = remember {
+        PlatformTextInputInterceptor { request, next ->
+            next.startInputMethod(PlatformTextInputMethodRequest { info ->
+                request.createInputConnection(info).also {
+                    val extras = info.extras ?: Bundle().also { info.extras = it }
+                    extras.putInt("com.kongye.input.EDITOR_PROTOCOL", 1)
+                }
+            })
+        }
+    }
+    InterceptPlatformTextInput(interceptor, content)
+}
+
 /** Bridge both menu actions and keyboards that implement Select All using setSelection. */
-internal class DocumentInputConnection(target: InputConnection, private val context: Context, private val editor: EditorState) : InputConnectionWrapper(target,false) {
+internal class DocumentInputConnection(target: InputConnection, private val context: Context, private val editor: EditorState, private val documentInput: Boolean = false) : InputConnectionWrapper(target,false) {
+    private fun bodyInput() = documentInput && editor.focused?.type?.isText == true && !editor.titleFocused &&
+        editor.focusedCell == null && editor.commentDraft == null && editor.commentView == null && !editor.findMode
     private val handler=Handler(Looper.getMainLooper())
     private fun <T> main(action: () -> T): T {
         if(Looper.myLooper()==Looper.getMainLooper()) return action()
@@ -52,6 +76,8 @@ internal class DocumentInputConnection(target: InputConnection, private val cont
         if(id==android.R.id.selectAll) return selectBody()
         return main {
             when {
+                id==android.R.id.undo && bodyInput() -> { editor.undo(); true }
+                id==android.R.id.redo && bodyInput() -> { editor.redo(); true }
                 id==android.R.id.copy && editor.selection.active -> { Share.copy(context,"文档",editor.selection.text()); editor.selection.clear(); true }
                 id==android.R.id.cut && editor.selection.active -> { Share.copy(context,"文档",editor.selection.text()); editor.selection.replace(""); true }
                 id==android.R.id.paste && editor.selection.active -> {
@@ -61,6 +87,17 @@ internal class DocumentInputConnection(target: InputConnection, private val cont
                 }
                 else -> super.performContextMenuAction(id)
             }
+        }
+    }
+    override fun performPrivateCommand(action: String?, data: Bundle?): Boolean = main {
+        if (!bodyInput()) return@main super.performPrivateCommand(action,data)
+        when (action) {
+            "com.kongye.input.UNDO" -> { super.finishComposingText(); editor.undo(); true }
+            "com.kongye.input.REDO" -> { super.finishComposingText(); editor.redo(); true }
+            "com.kongye.input.SELECTION_START" -> editor.keyboardSelection.start()
+            "com.kongye.input.SELECTION_END" -> { editor.keyboardSelection.end(); true }
+            "com.kongye.input.SELECT_MOVE" -> editor.keyboardSelection.move(data?.getString("direction").orEmpty())
+            else -> super.performPrivateCommand(action,data)
         }
     }
     override fun setSelection(start: Int,end: Int): Boolean = main {

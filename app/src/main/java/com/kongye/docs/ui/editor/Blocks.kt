@@ -201,9 +201,13 @@ private fun TextBlock(b: BlockState, index: Int, editor: EditorState) {
         }
         val inputEpoch=editor.inputEpoch
         val field: @Composable (Modifier) -> Unit = { mod ->
+            DocumentBodyInput {
             DocumentSelectionDrawing {
             BasicTextField(
-                value = b.value,
+                // The document draws the touch selection. Keep only a native caret
+                // so transparent per-paragraph handle popups cannot intercept drags.
+                value = if (editor.selection.active && !editor.selection.fromKeyboard)
+                    b.value.copy(selection = androidx.compose.ui.text.TextRange(b.value.selection.end)) else b.value,
                 onValueChange = { if(inputEpoch==editor.inputEpoch) editor.onValueChange(b, it) },
                 readOnly = editor.findMode,
                 textStyle = style,
@@ -242,6 +246,7 @@ private fun TextBlock(b: BlockState, index: Int, editor: EditorState) {
                     }
                 },
             )
+            }
             }
         }
         Box(Modifier.weight(1f).then(if(type==BlockType.CODE)
@@ -306,6 +311,7 @@ internal fun Modifier.textGestures(
             val down=awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Initial)
             editor.cursorNavigation.reset()
             if(down.isConsumed) return@awaitEachGesture
+            editor.keyboardSelection.end()
             editor.cancelCharSelect()
             editor.clearArticleSelection()
             val action=intercept(down.position)
