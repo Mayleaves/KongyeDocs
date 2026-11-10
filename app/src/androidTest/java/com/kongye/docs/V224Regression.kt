@@ -37,10 +37,11 @@ object V224Regression {
                 DurableFiles.write(File(legacy.filesDir, "vault/vault.json"), CredentialStore.encrypt(raw, CredentialStore.VAULT_ALIAS))
                 Repository.init(legacy)
                 val e = VaultStore.get("0000000000000aa1") ?: error("Legacy entry missing")
-                check(e.url.isEmpty() && e.note.isEmpty() && e.fields.map { it.label to it.value } == listOf("网址" to "a.example.com", "备注" to "旧备注")) { "Legacy fields: ${e.fields}" }
+                // 3.0：网址留在固定字段，备注转成字段
+                check(e.url == "a.example.com" && e.note.isEmpty() && e.fields.map { it.label to it.value } == listOf("备注" to "旧备注")) { "Legacy fields: ${e.fields}" }
                 check(e.updatedAt == 1L && e.password == "Old#1")
                 val disk = CredentialStore.decrypt(File(legacy.filesDir, "vault/vault.json").readText(), CredentialStore.VAULT_ALIAS)
-                check("\"fields\"" in disk && "\"url\":\"a.example.com\"" !in disk) { "Migration not written back" }
+                check("\"fields\"" in disk && "\"note\":\"旧备注\"" !in disk) { "Migration not written back" }
                 Repository.init(legacy)
                 check(VaultStore.get(e.id)!!.fields.map { it.id } == e.fields.map { it.id }) { "Field ids must be stable after migration" }
             }
@@ -71,7 +72,7 @@ object V224Regression {
                 Repository.importBackup(text)
                 VaultStore.restore(VaultStore.pendingRestore.value!!, "synthetic-backup-pass")
                 val back = VaultStore.get(a.id)!!
-                check(back.pinned && back.field("PIN 码") == "8642" && back.fields.first { it.label == "PIN 码" }.secret && back.field("网址") == "mail.example.edu")
+                check(back.pinned && back.field("PIN 码") == "8642" && back.fields.first { it.label == "PIN 码" }.secret && back.url == "mail.example.edu" && back.field("网址") == "")
                 VaultStore.togglePin(a.id)
                 check(!VaultStore.get(a.id)!!.pinned)
             }
@@ -222,12 +223,12 @@ object V224Regression {
                 shot("v224-detail.png")
                 passed("tap-lists-fields-and-tap-copies")
 
-                // 编辑：删掉“网址”，添加“安全问题”和隐藏的“PIN 码”
+                // 编辑：清空“网址”（3.0 起是固定字段，没有字段操作），添加“安全问题”和隐藏的“PIN 码”
                 clickIn(sheet, "编辑")
                 waitFor("editor") { find("编辑密码") != null && field("网址") != null && field("备注") != null }
-                // 2.25 起删除在字段操作里
-                click("字段操作网址"); click("删除字段")
-                waitFor("url removed") { field("网址") == null }
+                check(find("字段操作网址") == null && find("字段操作备注") != null)
+                setText(field("网址")!!, "")
+                waitFor("url cleared") { field("网址")?.text?.toString().let { it.isNullOrEmpty() || it.startsWith("如 ") } }
                 click("添加字段")
                 waitFor("add field dialog") { find("隐藏内容") != null }
                 val dialog = find("隐藏内容")!!.windowId
@@ -254,7 +255,7 @@ object V224Regression {
                 val saved = main { VaultStore.get(school.id)!! }
                 check(saved.fields.map { it.label } == listOf("备注", "安全问题", "PIN 码")) { "Fields: ${saved.fields}" }
                 check(saved.field("安全问题") == "第一只宠物" && saved.field("PIN 码") == "8642" && saved.fields.last().secret && !saved.fields[1].secret)
-                check(saved.password == "Synthetic#Pass123" && saved.account == "student01")
+                check(saved.password == "Synthetic#Pass123" && saved.account == "student01" && saved.url.isEmpty())
                 passed("edit-delete-and-add-custom-fields-including-hidden")
             } catch (error: Throwable) { shot("v224-failure.png"); throw error }
             finally { main { Settings.update { it.copy(theme = ThemeMode.SYSTEM) }; AppState.vaultSearchOpen = false; AppState.filesSub = FilesSub.DESKTOP; AppState.goHome(Tab.HOME); activity.finish() } }

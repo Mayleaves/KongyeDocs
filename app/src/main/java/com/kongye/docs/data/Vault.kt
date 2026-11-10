@@ -35,7 +35,10 @@ data class VaultEntry(
     val algorithm: String = "SHA1",
     /** 普通密码 */
     val password: String = "",
-    /** 2.23 的网址、备注；2.24 起放进 fields，读取时自动转换（见 normalized） */
+    /**
+     * 网址：3.0 起是固定字段（编辑页「网址」），自动填充按它的域名匹配网页。
+     * 备注：2.23 单独存放，2.24 起放进 fields，读取时自动转换（见 normalized）。
+     */
     val url: String = "",
     val note: String = "",
     val createdAt: Long = System.currentTimeMillis(),
@@ -44,6 +47,10 @@ data class VaultEntry(
     val fields: List<VaultField> = emptyList(),
     /** 置顶时间，0 表示未置顶；置顶项排在最前，后置顶的在上 */
     val pinnedAt: Long = 0L,
+    /** 适用的 App 包名（可多个）：空叶键盘 / 悬浮球在这些 App 里直接推荐这一条；旧数据没有时为空 */
+    val apps: List<String> = emptyList(),
+    /** 最近一次被键盘 / 悬浮球取用的时间，用于推荐排序；0 表示没用过 */
+    val lastUsedAt: Long = 0L,
 ) {
     val pinned get() = pinnedAt > 0L
 
@@ -55,14 +62,22 @@ data class VaultEntry(
         return texts.any { it.contains(q, ignoreCase = true) }
     }
 
-    /** 2.23 单独存放的网址、备注转成普通字段，之后可以像其他字段一样删除 */
+    /**
+     * 统一成 3.0 的样子：
+     * - 2.23 单独存放的备注转成普通字段；
+     * - 2.24–2.32 把网址放在名为「网址」的自定义字段里，3.0 起网址是固定字段：没有网址时，把第一个不隐藏的「网址」字段搬回来。
+     */
     fun normalized(): VaultEntry {
-        if (url.isEmpty() && note.isEmpty()) return this
-        val legacy = listOfNotNull(
-            url.takeIf { it.isNotBlank() }?.let { VaultField(label = "网址", value = it) },
-            note.takeIf { it.isNotBlank() }?.let { VaultField(label = "备注", value = it) },
-        )
-        return copy(url = "", note = "", fields = legacy + fields)
+        var next = this
+        if (note.isNotEmpty()) next = next.copy(note = "", fields = listOf(VaultField(label = "备注", value = note)) + next.fields)
+        if (next.url.isBlank()) {
+            val legacy = next.fields.firstOrNull { it.label.trim() == "网址" && !it.secret && it.value.isNotBlank() }
+            if (legacy != null) next = next.copy(url = legacy.value.trim(), fields = next.fields - legacy)
+            else if (next.url.isNotEmpty()) next = next.copy(url = "")
+        }
+        val apps = next.apps.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
+        if (apps != next.apps) next = next.copy(apps = apps)
+        return next
     }
 
     fun field(label: String) = fields.firstOrNull { it.label == label }?.value.orEmpty()
@@ -96,6 +111,22 @@ data class VaultBackup(
 
 class VaultPasswordException : Exception("备份密码不正确")
 
+/** 随机密码：大小写字母、数字、符号各至少一个，去掉容易看混的 0 O 1 l I */
+object VaultPasswords {
+    const val DEFAULT_LENGTH = 16
+    private const val SYMBOLS = "!@#$%^&*-_"
+    private val groups = listOf("ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz", "23456789", SYMBOLS)
+
+    fun generate(length: Int = DEFAULT_LENGTH): String {
+        val n = length.coerceIn(8, 64)
+        val rnd = SecureRandom()
+        val all = groups.joinToString("")
+        val chars = (groups.map { it[rnd.nextInt(it.length)] } + List(n - groups.size) { all[rnd.nextInt(all.length)] }).toMutableList()
+        for (i in chars.indices.reversed()) { val j = rnd.nextInt(i + 1); val t = chars[i]; chars[i] = chars[j]; chars[j] = t }
+        return chars.joinToString("")
+    }
+}
+
 /**
  * 密码空间：内容只存在本机 files/vault/vault.json，用 Android Keystore 里的专用密钥加密，
  * 不进搜索、不进系统自动备份；设置了备份密码后，才会加密放进本地 / 云端备份。
@@ -121,6 +152,7 @@ object VaultStore {
         val dir = File(context.filesDir, "vault").apply { mkdirs() }
         val f = File(dir, "vault.json")
         file = f
+        VaultAccessLog.init(dir)
         _problem.value = ""
         _pending.value = null
         val loaded = runCatching {
@@ -166,6 +198,30 @@ object VaultStore {
 
     @Synchronized
     fun delete(id: String) = persist(_entries.value.filterNot { it.id == id })
+
+    /** 改一条但不算“修改”（不动 updatedAt）：记录使用时间、绑定 App；找不到返回 null */
+    @Synchronized
+    fun update(id: String, transform: (VaultEntry) -> VaultEntry): VaultEntry? {
+        val current = get(id) ?: return null
+        val next = transform(current).normalized()
+        if (next != current) persist(_entries.value.map { if (it.id == id) next else it })
+        return next
+    }
+
+    /** 外部（键盘 / 悬浮球）存进来的新密码：直接追加，返回存好的那一条 */
+    @Synchronized
+    fun add(entry: VaultEntry): VaultEntry {
+        val now = System.currentTimeMillis()
+        val next = entry.normalized().copy(createdAt = now, updatedAt = now)
+        persist(_entries.value + next)
+        return next
+    }
+
+    /** 当前数据目录（测试用的替身目录也在这里），访问记录和密码空间放在一起 */
+    val dir: File? get() = file?.parentFile
+
+    /** 读取有问题时为 false：此时对外接口返回 error，不写入 */
+    val healthy: Boolean get() = file != null && _problem.value.isEmpty()
 
     // ---------- 备份 ----------
 

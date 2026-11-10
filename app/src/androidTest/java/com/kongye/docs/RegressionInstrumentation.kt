@@ -27,6 +27,7 @@ class RegressionInstrumentation : Instrumentation() {
     private var onlyV223=false
     private var onlyV224=false
     private var onlyV225=false
+    private var onlyV300=false
     private var onlyV226=false
     private var onlyCursor=false
     private var keyboardProtocol: String? = null
@@ -35,7 +36,7 @@ class RegressionInstrumentation : Instrumentation() {
     private var onlyKongyeClipboard=false
     private var onlyActualIme=false
     private var onlyCursorHandles=false
-    override fun onCreate(arguments: Bundle?) { universalIme=arguments?.getString("only")?.takeIf { it in listOf("universal-ime","universal-actual","ime-typing") }; keyboardProtocol=arguments?.getString("only")?.takeIf { it in listOf("keyboard-protocol","keyboard-actual") }; onlyKongyeClipboard=arguments?.getString("only")=="kongye-clipboard"; onlySelectionClipboard=arguments?.getString("only")=="selection-clipboard"; onlyActualIme=arguments?.getString("only")=="actual-ime"; onlyCursorHandles=arguments?.getString("only")=="cursor-handles"; onlyCursor=arguments?.getString("only")=="cursor"; onlyV226=arguments?.getString("only")=="v226"; onlyV225=arguments?.getString("only")=="v225"; onlyV224=arguments?.getString("only")=="v224"; onlyV223=arguments?.getString("only")=="v223"; onlyToolbarCustomize=arguments?.getString("only")=="toolbar-customize"; onlyCommentHandoff=arguments?.getString("only")=="comment-handoff"; onlyV217=arguments?.getString("only")=="v217"; onlyDock=arguments?.getString("only")=="dock"; onlyV215=arguments?.getString("only")=="v215"; onlyV214=arguments?.getString("only")=="v214"; onlyV213=arguments?.getString("only")=="v213"; onlyCats=arguments?.getString("only")=="cats"; editorModels=arguments?.getString("only")=="editor-models"; if(arguments?.getString("only")=="verify-backups") verifyPaths=arguments.getString("before")!! to arguments.getString("after")!!; manualKeyboard=arguments?.getString("only")=="keyboard"; onlyUi=arguments?.getString("only")=="ui"; onlyEditor=arguments?.getString("only")=="editor"; super.onCreate(arguments); start() }
+    override fun onCreate(arguments: Bundle?) { universalIme=arguments?.getString("only")?.takeIf { it in listOf("universal-ime","universal-actual","ime-typing") }; keyboardProtocol=arguments?.getString("only")?.takeIf { it in listOf("keyboard-protocol","keyboard-actual") }; onlyKongyeClipboard=arguments?.getString("only")=="kongye-clipboard"; onlySelectionClipboard=arguments?.getString("only")=="selection-clipboard"; onlyActualIme=arguments?.getString("only")=="actual-ime"; onlyCursorHandles=arguments?.getString("only")=="cursor-handles"; onlyCursor=arguments?.getString("only")=="cursor"; onlyV226=arguments?.getString("only")=="v226"; onlyV300=arguments?.getString("only")=="v3"; onlyV225=arguments?.getString("only")=="v225"; onlyV224=arguments?.getString("only")=="v224"; onlyV223=arguments?.getString("only")=="v223"; onlyToolbarCustomize=arguments?.getString("only")=="toolbar-customize"; onlyCommentHandoff=arguments?.getString("only")=="comment-handoff"; onlyV217=arguments?.getString("only")=="v217"; onlyDock=arguments?.getString("only")=="dock"; onlyV215=arguments?.getString("only")=="v215"; onlyV214=arguments?.getString("only")=="v214"; onlyV213=arguments?.getString("only")=="v213"; onlyCats=arguments?.getString("only")=="cats"; editorModels=arguments?.getString("only")=="editor-models"; if(arguments?.getString("only")=="verify-backups") verifyPaths=arguments.getString("before")!! to arguments.getString("after")!!; manualKeyboard=arguments?.getString("only")=="keyboard"; onlyUi=arguments?.getString("only")=="ui"; onlyEditor=arguments?.getString("only")=="editor"; super.onCreate(arguments); start() }
     private fun report(code: Int,bundle: Bundle) {
         File(targetContext.cacheDir,"regression-progress.txt").appendText(bundle.getString("stream").orEmpty())
         sendStatus(code,bundle)
@@ -121,6 +122,11 @@ class RegressionInstrumentation : Instrumentation() {
             if(onlyV226) {
                 V226Regression.run(this,targetContext) { name -> passed++; report(0,Bundle().apply { putString("stream","PASS $name\n") }) }
                 finish(Activity.RESULT_OK,Bundle().apply { putString("stream","ALL $passed V2.26 TESTS PASSED\n") })
+                return
+            }
+            if(onlyV300) {
+                V300Regression.run(this,targetContext) { name -> passed++; report(0,Bundle().apply { putString("stream","PASS $name\n") }) }
+                finish(Activity.RESULT_OK,Bundle().apply { putString("stream","ALL $passed V3.0 TESTS PASSED\n") })
                 return
             }
             if(onlyV225) {

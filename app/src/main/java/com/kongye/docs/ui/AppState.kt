@@ -40,10 +40,13 @@ sealed interface Screen {
 
     /** 密码空间：新增（id 为 null）或编辑一条动态密码 / 密码 */
     data class VaultEdit(val id: String?, val type: VaultType) : Screen
+
+    /** 密码空间 → 密码填充：是否允许空叶键盘 / 悬浮球读取、解锁状态、访问记录 */
+    data object VaultFill : Screen
 }
 
 /** 显示用的版本号（与 build.gradle 的 versionName 一致） */
-const val APP_VERSION = "2.26"
+const val APP_VERSION = "3.0"
 
 /** 底部导航：首页 / 文件 / 我的 */
 enum class Tab { HOME, FILES, ME }

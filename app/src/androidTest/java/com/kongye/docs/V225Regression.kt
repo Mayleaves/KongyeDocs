@@ -143,11 +143,11 @@ object V225Regression {
                 check(saved.password == "Login#Pass2" && saved.secret == SECRET && saved.account == "alice@example.com")
                 passed("rename-unhide-move-delete-fields-and-otp-password-saved")
 
-                // 新建密码：名称、账号、密码，没有默认的网址 / 备注
+                // 新建密码：名称、账号、密码、网址（3.0 起网址是固定字段），没有默认的备注
                 click("新建"); click("添加密码")
                 waitFor("password editor") { find("添加密码") != null && field("密码") != null }
-                val newTop = labelOrder("名称", "账号", "密码")
-                check(newTop == newTop.sorted() && newTop.last() < box(find("添加字段")!!).top && field("网址") == null && field("备注") == null)
+                val newTop = labelOrder("名称", "账号", "密码", "网址")
+                check(newTop == newTop.sorted() && newTop.last() < box(find("添加字段")!!).top && field("备注") == null)
                 Thread.sleep(300)
                 shot("v225-password-editor.png")
                 passed("new-password-has-only-name-account-password")

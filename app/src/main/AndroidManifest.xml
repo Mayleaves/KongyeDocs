@@ -6,6 +6,27 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
 
+    <!-- 密码填充：只有同一签名（本机 debug.keystore）的空叶键盘 / 悬浮球能拿到这个权限，
+         见 docs/密码填充-接口与任务.md。空叶文档自己也申请，以便核对同进程调用。 -->
+    <permission
+        android:name="com.kongye.permission.VAULT"
+        android:protectionLevel="signature"
+        android:label="读取空叶文档密码空间" />
+    <uses-permission android:name="com.kongye.permission.VAULT" />
+    <!-- 解锁密码空间对外读取时用指纹验证 -->
+    <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+
+    <!-- 密码空间：显示「已用于」的 App 名称、给条目选择适用的 App、看空叶键盘 / 悬浮球是否已安装 -->
+    <queries>
+        <package android:name="com.kongye.keyboard" />
+        <package android:name="com.kongye.keyboard.debug" />
+        <package android:name="com.kongye.floatball" />
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <!-- usesCleartextTraffic：允许 http:// 地址的 WebDAV（家里的 NAS 常用 http） -->
     <application
         android:name=".KongyeApplication"
@@ -46,6 +67,22 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/file_paths" />
         </provider>
+        <!-- 密码空间对外接口：content://<applicationId>.vault，只用 call() -->
+        <provider
+            android:name=".vault.VaultProvider"
+            android:authorities="${applicationId}.vault"
+            android:exported="true"
+            android:permission="com.kongye.permission.VAULT" />
+
+        <!-- 解锁密码空间（指纹 / 锁屏密码）：透明、不进最近任务，关掉后回到原来的 App -->
+        <activity
+            android:name=".vault.VaultUnlockActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|density|uiMode|locale|layoutDirection|fontScale" />
+
         <service android:name=".data.BackupJobService" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="true" />
     </application>
 </manifest>

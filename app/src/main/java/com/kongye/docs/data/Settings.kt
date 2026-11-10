@@ -57,6 +57,8 @@ data class AppSettings(
     val filesSortDesc: Boolean = true,
     /** 第一次使用的时间（“相识于”），0 表示还没记下 */
     val firstUse: Long = 0L,
+    /** 密码空间 → 密码填充：允许空叶键盘 / 悬浮球通过对外接口读取，默认关闭 */
+    val vaultFill: Boolean = false,
 )
 
 /** 应用设置，单独存在 settings.json（与笔记数据分开） */

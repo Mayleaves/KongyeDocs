@@ -67,9 +67,9 @@ object V223Regression {
                 check(SECRET !in raw && "Synthetic#Pass123" !in raw && "alice@example.com" !in raw && "测试邮箱" !in raw) { "Vault file is not encrypted" }
                 Repository.init(store)
                 check(VaultStore.entries.value.map { it.id }.toSet() == setOf(otp.id, pwd.id) && VaultStore.get(pwd.id)!!.password == "Synthetic#Pass123")
-                // 2.24 起网址、备注是普通字段
+                // 2.24 起备注是普通字段；3.0 起网址是固定字段
                 val stored = VaultStore.get(pwd.id)!!
-                check(stored.url.isEmpty() && stored.note.isEmpty() && stored.field("网址") == "mail.example.com" && stored.field("备注") == "测试备注")
+                check(stored.url == "mail.example.com" && stored.note.isEmpty() && stored.field("网址") == "" && stored.field("备注") == "测试备注")
                 VaultStore.save(stored.copy(fields = stored.fields.map { if (it.label == "备注") it.copy(value = "改过的备注") else it }))
                 check(VaultStore.get(pwd.id)!!.field("备注") == "改过的备注" && VaultStore.entries.value.size == 2)
                 // 没设备份密码：备份里没有密码空间（JSON 里也不出现 vault 字段）

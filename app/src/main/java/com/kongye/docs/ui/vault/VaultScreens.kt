@@ -83,6 +83,7 @@ import com.kongye.docs.data.Settings
 import com.kongye.docs.data.Totp
 import com.kongye.docs.data.VaultEntry
 import com.kongye.docs.data.VaultField
+import com.kongye.docs.data.VaultPasswords
 import com.kongye.docs.data.VaultStore
 import com.kongye.docs.data.VaultType
 import com.kongye.docs.ui.AppState
@@ -107,7 +108,6 @@ import com.kongye.docs.ui.theme.Kongye
 import com.kongye.docs.util.Share
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import java.security.SecureRandom
 
 /** 每秒更新一次的当前时间（对齐到整秒），用来刷新验证码和倒计时 */
 @Composable
@@ -181,6 +181,18 @@ fun VaultPage() {
                 Modifier.weight(1f), fontSize = 12.sp, color = if (problem.isNotEmpty()) Kongye.Danger else Kongye.Text3,
             )
             Text(if (hasPassword) "管理" else "设置备份密码", fontSize = 12.sp, color = Kongye.Link)
+        }
+        // 密码填充：空叶键盘 / 悬浮球能不能读取
+        Row(
+            Modifier.fillMaxWidth().background(Kongye.Bg2).clickable { AppState.push(Screen.VaultFill) }
+                .padding(horizontal = 16.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                if (settings.vaultFill) "已允许空叶键盘 / 悬浮球填充密码" else "密码填充未开启，空叶键盘 / 悬浮球不能读取",
+                Modifier.weight(1f), fontSize = 12.sp, color = Kongye.Text3,
+            )
+            Text("密码填充", fontSize = 12.sp, color = Kongye.Link)
         }
         if (entries.isEmpty()) {
             EmptyState("密码空间是空的", "点击右下角 + 添加动态密码或密码")
@@ -368,6 +380,7 @@ private fun VaultDetailSheet(e: VaultEntry, onEdit: () -> Unit, onDismiss: () ->
         add(DetailLine("账号", e.account, masked = false, sensitive = false))
         add(DetailLine("密码", e.password, masked = true, sensitive = true))
         if (e.type == VaultType.OTP) add(DetailLine("密钥", e.secret, masked = true, sensitive = true))
+        add(DetailLine("网址", e.url, masked = false, sensitive = false))
         e.fields.forEach { add(DetailLine(it.label, it.value, masked = it.secret, sensitive = it.secret)) }
     }.filter { it.value.isNotBlank() }
     BottomSheet(onDismiss) { dismiss ->
@@ -412,6 +425,17 @@ private fun VaultDetailSheet(e: VaultEntry, onEdit: () -> Unit, onDismiss: () ->
                     )
                 }
                 HLine(Modifier.padding(start = 20.dp), color = Kongye.Divider)
+            }
+            if (e.apps.isNotEmpty()) {
+                // 键盘 / 悬浮球在这些 App 里直接推荐这一条；删掉后就不再自动推荐
+                val names = e.apps.joinToString("、") { appName(context, it) }
+                Text("已用于：$names", Modifier.padding(start = 20.dp, end = 20.dp, top = 12.dp, bottom = 4.dp), fontSize = 13.sp, color = Kongye.Text3)
+                e.apps.forEach { pkg ->
+                    AppChipRow(context, pkg) {
+                        runCatching { VaultStore.update(e.id) { it.copy(apps = it.apps - pkg) } }
+                            .onSuccess { Toast.done("已移除") }.onFailure { Toast.show(it.message ?: "操作失败") }
+                    }
+                }
             }
         }
         Box(Modifier.fillMaxWidth().height(8.dp).background(Kongye.Bg2))
@@ -524,18 +548,6 @@ fun VaultSearchOverlay() {
 
 // ---------------- 添加 / 编辑 ----------------
 
-private const val SYMBOLS = "!@#$%^&*-_"
-
-/** 随机密码：16 位，大小写字母、数字、符号各至少一个 */
-private fun randomPassword(): String {
-    val rnd = SecureRandom()
-    val groups = listOf("ABCDEFGHJKLMNPQRSTUVWXYZ", "abcdefghijkmnopqrstuvwxyz", "23456789", SYMBOLS)
-    val all = groups.joinToString("")
-    val chars = (groups.map { it[rnd.nextInt(it.length)] } + List(12) { all[rnd.nextInt(all.length)] }).toMutableList()
-    for (i in chars.indices.reversed()) { val j = rnd.nextInt(i + 1); val t = chars[i]; chars[i] = chars[j]; chars[j] = t }
-    return chars.joinToString("")
-}
-
 @Composable
 fun VaultEditScreen(id: String?, type: VaultType) {
     val context = LocalContext.current
@@ -547,6 +559,9 @@ fun VaultEditScreen(id: String?, type: VaultType) {
     var period by remember { mutableIntStateOf(original?.period ?: 30) }
     var algorithm by remember { mutableStateOf(original?.algorithm ?: "SHA1") }
     var password by remember { mutableStateOf(original?.password.orEmpty()) }
+    var url by remember { mutableStateOf(original?.url.orEmpty()) }
+    val apps = remember { mutableStateListOf<String>().apply { addAll(original?.apps.orEmpty()) } }
+    var pickingApp by remember { mutableStateOf(false) }
     val otp = type == VaultType.OTP
     // 自定义字段：排在 名称、账号、密码（、密钥）之后，可以改名、调整位置、隐藏、增加和删除
     val fields = remember { mutableStateListOf<VaultField>().apply { addAll(original?.fields.orEmpty()) } }
@@ -562,11 +577,12 @@ fun VaultEditScreen(id: String?, type: VaultType) {
     fun draft() = (original ?: VaultEntry(type = type, name = "")).copy(
         name = name.trim(), account = account.trim(),
         secret = if (otp) Totp.normalize(secret) else "", digits = digits, period = period, algorithm = algorithm,
-        password = password, url = "", note = "",
+        password = password, url = url.trim(), note = "",
         fields = fields.map { it.copy(label = it.label.trim()) },
+        apps = apps.toList(),
     )
     val changed = original?.let { draft() != it }
-        ?: (name.isNotBlank() || account.isNotBlank() || secret.isNotBlank() || password.isNotEmpty() || fields.any { it.value.isNotBlank() })
+        ?: (name.isNotBlank() || account.isNotBlank() || secret.isNotBlank() || password.isNotEmpty() || url.isNotBlank() || apps.isNotEmpty() || fields.any { it.value.isNotBlank() })
     fun leave() { if (changed) confirmLeave = true else AppState.pop() }
     BackHandler { leave() }
 
@@ -613,7 +629,7 @@ fun VaultEditScreen(id: String?, type: VaultType) {
                 ) {
                     IconBtn(if (showPassword) KongyeIcons.EyeOff else KongyeIcons.Eye, { showPassword = !showPassword },
                         tint = Kongye.Icon2, size = 36.dp, iconSize = 20.dp, description = if (showPassword) "隐藏密码" else "显示密码")
-                    IconBtn(KongyeIcons.Refresh, { password = randomPassword(); showPassword = true },
+                    IconBtn(KongyeIcons.Refresh, { password = VaultPasswords.generate(); showPassword = true },
                         tint = Kongye.Icon2, size = 36.dp, iconSize = 20.dp, description = "随机生成密码")
                 }
                 if (otp) FormField(
@@ -621,6 +637,7 @@ fun VaultEditScreen(id: String?, type: VaultType) {
                     { text -> if (text.trim().startsWith("otpauth://", ignoreCase = true)) { fillFrom(text) } else { secret = text } },
                     "网站提供的密钥，或粘贴 otpauth:// 链接", mono = true,
                 )
+                FormField("网址", url, { url = it }, "如 github.com（网页填充按它匹配）", keyboard = KeyboardType.Uri)
                 fields.forEach { f ->
                     val hidden = f.secret && revealed[f.id] != true
                     FormField(
@@ -643,6 +660,19 @@ fun VaultEditScreen(id: String?, type: VaultType) {
                     Icon(KongyeIcons.Plus, null, Modifier.size(18.dp), tint = Kongye.Link)
                     Spacer(Modifier.width(8.dp))
                     Text("添加字段", fontSize = 15.sp, color = Kongye.Link)
+                }
+            }
+            // 适用的 App：空叶键盘 / 悬浮球在这些 App 里直接推荐这一条
+            SettingsTitle("适用的 App（空叶键盘 / 悬浮球在这些 App 里直接推荐）")
+            Column(Modifier.fillMaxWidth().background(Kongye.Surface)) {
+                apps.toList().forEach { pkg -> AppChipRow(context, pkg) { apps.remove(pkg) } }
+                Row(
+                    Modifier.fillMaxWidth().height(52.dp).clickable { pickingApp = true }.padding(horizontal = 20.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(KongyeIcons.Plus, null, Modifier.size(18.dp), tint = Kongye.Link)
+                    Spacer(Modifier.width(8.dp))
+                    Text("添加 App", fontSize = 15.sp, color = Kongye.Link)
                 }
             }
             if (otp) {
@@ -694,6 +724,7 @@ fun VaultEditScreen(id: String?, type: VaultType) {
         "period" -> ChoiceSheet("刷新周期", listOf(30 to "30 秒", 60 to "60 秒"), period, { choice = null }) { period = it }
         "algorithm" -> ChoiceSheet("算法", Totp.algorithms.map { it to it }, algorithm, { choice = null }) { algorithm = it }
     }
+    if (pickingApp) AppPickerSheet(apps, onDismiss = { pickingApp = false }) { pkg -> if (pkg !in apps) apps.add(pkg) }
     if (addingField) AddFieldDialog(onDismiss = { addingField = false }) { label, hidden ->
         addingField = false
         fields.add(VaultField(label = label, secret = hidden))
