@@ -195,3 +195,6 @@ adb -s DEVICE_SERIAL shell am instrument -w -e only toolbar-customize com.kongye
 - 本项目仅用于学习 Android / Jetpack Compose 开发，不提供任何商业服务，也不会上架任何应用市场。
 - 界面外观参考了「石墨文档」，相关权利归其权利人所有。
 - 如果本项目的任何内容侵犯了您的权益，请通过 Issues 联系，我会立即删除。
+
+
+三软件密码联动的开启方式、日常操作和手机测试清单见[联动使用说明](docs/三软件联动使用与手机测试.md)。

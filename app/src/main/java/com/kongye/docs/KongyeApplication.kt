@@ -14,6 +14,7 @@ class KongyeApplication : Application() {
         try {
             Settings.init(this)
             Repository.init(this)
+            com.kongye.docs.data.VaultStore.dropApps { com.kongye.docs.vault.Browsers.isBrowser(this, it) }
             BackupJobService.schedule(this)
             // 锁屏时清掉密码空间的对外解锁状态
             VaultAccess.register(this)

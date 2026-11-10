@@ -207,6 +207,7 @@ internal fun AppPickerSheet(exclude: Collection<String>, onDismiss: () -> Unit, 
             .map { it.activityInfo.packageName to it.loadLabel(pm).toString() }
             .distinctBy { it.first }
             .filter { it.first != context.packageName }
+            .filter { !com.kongye.docs.vault.Browsers.isBrowser(context, it.first) }
             .sortedBy { it.second.lowercase() }
     }
     var query by remember { mutableStateOf("") }

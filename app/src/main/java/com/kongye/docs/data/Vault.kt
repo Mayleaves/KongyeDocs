@@ -184,6 +184,14 @@ object VaultStore {
         _entries.value = next
     }
 
+    /** 清理旧版本误存的浏览器关联；密码及其余字段保持原样。 */
+    @Synchronized
+    fun dropApps(drop: (String) -> Boolean) {
+        if (!healthy) return
+        val next = _entries.value.map { e -> e.apps.filterNot(drop).let { if (it.size == e.apps.size) e else e.copy(apps = it) } }
+        if (next != _entries.value) runCatching { persist(next) }
+    }
+
     /** 新增或修改（同 id 覆盖） */
     @Synchronized
     fun save(entry: VaultEntry) {

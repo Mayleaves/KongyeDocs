@@ -33,7 +33,7 @@ import javax.crypto.spec.SecretKeySpec
  * 全部是测试用假数据；真正的指纹 / 锁屏密码不在测试里输入，解锁成功用 VaultAccess.unlock() 代替。
  */
 object V300Regression {
-    fun run(instrument: Instrumentation, context: Context, passed: (String) -> Unit) {
+    fun run(instrument: Instrumentation, context: Context, apiOnly: Boolean = false, passed: (String) -> Unit) {
         fun <T> main(block: () -> T): T { var result: Result<T>? = null; instrument.runOnMainSync { result = runCatching(block) }; return result!!.getOrThrow() }
         fun log(text: String) = instrument.sendStatus(0, Bundle().apply { putString("stream", "$text\n") })
         val root = File(context.filesDir, "v300-${System.nanoTime()}").apply { mkdirs() }
@@ -122,6 +122,41 @@ object V300Regression {
             check(call("search", "query" to "Only Code").entries().isEmpty()) { "entries without account / password are not fillable" }
             passed("match-by-package-then-domain-search-masked-accounts")
 
+            // 浏览器不能成为网站密码的 App 关联；无域名保存总是新建。
+            val browserEntry = VaultEntry(type = VaultType.PASSWORD, name = "Browser fixture", account = "browser-user", password = "Browser#1", apps = listOf("com.android.chrome", "com.example.native"))
+            main { VaultStore.save(browserEntry) }
+            check(call("match", "package" to "com.android.chrome").entries().isEmpty())
+            check(call("bind", "id" to browserEntry.id, "package" to "com.android.chrome").status() == "ok")
+            check(VaultStore.get(browserEntry.id)!!.apps == browserEntry.apps)
+            check(call("bind", "id" to "missing", "package" to "com.android.chrome").status() == "not_found")
+            repeat(2) {
+                val saved = call("save", "package" to "com.android.chrome", "account" to "browser-user", "password" to "Browser#2")
+                check(saved.getString("result") == "created")
+                check(VaultStore.get(saved.getString("id")!!)!!.let { it.apps.isEmpty() && it.name == "网页密码" })
+            }
+            fun webSave(domain: String, password: String = "WebHistory#1") = call("save", "package" to "com.android.chrome", "domain" to domain, "account" to "web-history", "password" to password)
+            val page = webSave("a.example.test")
+            val pageId = page.getString("id")!!
+            check(page.getString("result") == "created")
+            check(webSave("b.example.test").getString("result") == "created")
+            check(webSave("example.test").getString("result") == "created")
+            check(webSave("https://a.example.test/login", "WebHistory#2").let { it.getString("result") == "updated" && it.getString("id") == pageId })
+            fun history() = VaultStore.get(pageId)!!.fields.filter { it.secret && it.label.startsWith("旧密码") }
+            check(history().map { it.value } == listOf("WebHistory#1"))
+            webSave("a.example.test", "WebHistory#2")
+            check(history().size == 1)
+            for (n in 3..6) webSave("a.example.test", "WebHistory#$n")
+            check(history().map { it.value } == listOf("WebHistory#3", "WebHistory#4", "WebHistory#5"))
+            check(!VaultStore.get(pageId)!!.matches("WebHistory#3"))
+            val roundTrip = VaultStore.open(VaultStore.seal(listOf(VaultStore.get(pageId)!!), "history-backup"), "history-backup").single()
+            check(roundTrip.fields == VaultStore.get(pageId)!!.fields)
+            main { VaultStore.dropApps { com.kongye.docs.vault.Browsers.isBrowser(context, it) } }
+            check(VaultStore.get(browserEntry.id)!!.let { it.apps == listOf("com.example.native") && it.password == browserEntry.password })
+            passed("browser-no-binding-web-exact-host-create-and-password-history-limit-backup")
+
+
+            if (apiOnly) return
+
             // ---------- 没解锁 → locked + unlock PendingIntent；打开解锁页 ----------
             val locked = call("reveal", "id" to mail.id, "package" to "com.example.mail")
             check(locked.status() == "locked" && !locked.containsKey("password") && !locked.containsKey("account")) { "reveal locked: $locked" }
@@ -204,7 +239,6 @@ object V300Regression {
                 call("match", "package" to "com.example.web").entries().let { check(it.map { e -> e.getString("id") to e.getString("matchedBy") } == listOf(web.id to "package")) { "after bind: $it" } }
                 check(call("bind", "id" to "no-such-id", "package" to "com.example.web").status() == "not_found")
                 passed("generate-save-create-update-and-bind")
-
                 // ---------- 访问记录：有调用方、方法、目标包名；不记 status；文件里没有任何密码 ----------
                 val records = VaultAccessLog.records.value
                 check(records.size <= VaultAccessLog.LIMIT && records.none { it.method == "status" })

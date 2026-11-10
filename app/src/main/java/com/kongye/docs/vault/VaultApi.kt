@@ -11,6 +11,10 @@ import com.kongye.docs.data.VaultAccessRecord
 import com.kongye.docs.data.VaultEntry
 import com.kongye.docs.data.VaultPasswords
 import com.kongye.docs.data.VaultStore
+import com.kongye.docs.data.VaultField
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
 import com.kongye.docs.data.VaultType
 
 /**
@@ -37,6 +41,7 @@ object VaultApi {
     fun handle(context: Context, caller: String?, method: String, extras: Bundle?): Bundle {
         val x = extras ?: Bundle.EMPTY
         val target = x.getString("package").orEmpty().trim()
+        val app = target.takeUnless { Browsers.isBrowser(context, it) }.orEmpty()
         val domain = host(x.getString("domain").orEmpty()).orEmpty()
         var entryName = ""
         val result = try {
@@ -46,7 +51,7 @@ object VaultApi {
                 !Settings.value.vaultFill -> status(DISABLED)
                 !VaultStore.healthy -> status(ERROR).apply { putString("message", "密码空间读取失败") }
                 else -> when (method) {
-                    "match" -> entries(match(target, domain))
+                    "match" -> entries(match(app, domain))
                     "search" -> entries(search(x.getString("query").orEmpty()).map { it to "search" })
                     "reveal" -> {
                         val e = VaultStore.get(x.getString("id").orEmpty())
@@ -63,10 +68,10 @@ object VaultApi {
                     "generate" -> status(OK).apply {
                         putString("password", VaultPasswords.generate(if (x.containsKey("length")) x.getInt("length") else VaultPasswords.DEFAULT_LENGTH))
                     }
-                    "save" -> save(context, x, target, domain).also { entryName = it.getString("name").orEmpty(); it.remove("name") }
+                    "save" -> save(context, x, app, domain).also { entryName = it.getString("name").orEmpty(); it.remove("name") }
                     "bind" -> {
                         val id = x.getString("id").orEmpty()
-                        val e = if (target.isEmpty() && domain.isEmpty()) null else VaultStore.update(id) { bind(it, target, domain) }
+                        val e = VaultStore.update(id) { if (app.isEmpty() && domain.isEmpty()) it else bind(it, app, domain) }
                         entryName = e?.name.orEmpty()
                         if (e == null) status(NOT_FOUND) else status(OK)
                     }
@@ -121,21 +126,37 @@ object VaultApi {
         url = if (e.url.isBlank() && domain.isNotEmpty()) domain else e.url,
     )
 
-    /** 账号 + 包名都相同（普通密码）视为更新，否则新建；不需要解锁（只写不读） */
-    private fun save(context: Context, x: Bundle, target: String, domain: String): Bundle {
+    private const val OLD_PASSWORD = "旧密码"
+    private fun replacePassword(e: VaultEntry, password: String): VaultEntry {
+        if (e.password.isEmpty() || e.password == password) return e.copy(password = password)
+        val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm", Locale.CHINA).format(Date())
+        val old = e.fields.filter { it.secret && it.label.startsWith(OLD_PASSWORD) }
+        val dropped = old.dropLast(2).toSet()
+        return e.copy(password = password, fields = e.fields.filterNot { it in dropped } +
+            VaultField(label = "$OLD_PASSWORD $stamp", value = e.password, secret = true))
+    }
+
+    /** 普通 App 按账号和包名更新；网页按账号和规范化主机名完全相同更新。 */
+    private fun save(context: Context, x: Bundle, app: String, domain: String): Bundle {
         val account = x.getString("account").orEmpty().trim()
         val password = x.getString("password").orEmpty()
         if (password.isEmpty()) return status(ERROR).apply { putString("message", "密码为空") }
-        val existing = if (target.isEmpty()) null else VaultStore.entries.value.firstOrNull { it.type == VaultType.PASSWORD && it.account == account && target in it.apps }
+        val existing = VaultStore.entries.value.firstOrNull {
+            it.type == VaultType.PASSWORD && it.account == account && when {
+                app.isNotEmpty() -> app in it.apps
+                domain.isNotEmpty() -> host(it.url) == domain
+                else -> false
+            }
+        }
         if (existing != null) {
-            val next = bind(existing, target, domain).copy(password = password, lastUsedAt = System.currentTimeMillis())
+            val next = replacePassword(bind(existing, app, domain), password).copy(lastUsedAt = System.currentTimeMillis())
             VaultStore.save(next)
             return status(OK).apply { putString("id", existing.id); putString("result", "updated"); putString("name", existing.name) }
         }
-        val name = x.getString("name").orEmpty().trim().ifEmpty { appLabel(context, target) ?: domain.ifEmpty { target.ifEmpty { "未命名" } } }
+        val name = x.getString("name").orEmpty().trim().ifEmpty { appLabel(context, app) ?: domain.ifEmpty { "网页密码" } }
         val created = VaultStore.add(VaultEntry(
             type = VaultType.PASSWORD, name = name, account = account, password = password,
-            url = domain, apps = listOfNotNull(target.ifEmpty { null }), lastUsedAt = System.currentTimeMillis(),
+            url = domain, apps = listOfNotNull(app.ifEmpty { null }), lastUsedAt = System.currentTimeMillis(),
         ))
         return status(OK).apply { putString("id", created.id); putString("result", "created"); putString("name", created.name) }
     }
