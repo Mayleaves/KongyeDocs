@@ -13,6 +13,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -68,6 +69,9 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -167,32 +171,18 @@ fun VaultPage() {
     val now = if (entries.any { it.type == VaultType.OTP }) ticker() else 0L
 
     Column(Modifier.fillMaxSize()) {
-        // 备份状态：没设备份密码时提醒一下，点一下就能设置
+        // 读取出错时才显示的一行红字
+        if (problem.isNotEmpty()) Text(problem, Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp), fontSize = 12.sp, color = Kongye.Danger)
+        // 两个小胶囊：备份、密码填充的状态，点一下进入设置
         Row(
-            Modifier.fillMaxWidth().background(Kongye.Bg2)
-                .clickable { if (hasPassword) backupMenu = true else settingPassword = true }
-                .padding(horizontal = 16.dp, vertical = 10.dp),
+            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(
-                if (problem.isNotEmpty()) problem
-                else if (hasPassword) "已设置备份密码，密码空间加密后随本地 / 云端备份"
-                else "未设置备份密码，密码空间不会进入备份",
-                Modifier.weight(1f), fontSize = 12.sp, color = if (problem.isNotEmpty()) Kongye.Danger else Kongye.Text3,
-            )
-            Text(if (hasPassword) "管理" else "设置备份密码", fontSize = 12.sp, color = Kongye.Link)
-        }
-        // 密码填充：空叶键盘 / 悬浮球能不能读取
-        Row(
-            Modifier.fillMaxWidth().background(Kongye.Bg2).clickable { AppState.push(Screen.VaultFill) }
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                if (settings.vaultFill) "已允许空叶键盘 / 悬浮球填充密码" else "密码填充未开启，空叶键盘 / 悬浮球不能读取",
-                Modifier.weight(1f), fontSize = 12.sp, color = Kongye.Text3,
-            )
-            Text("密码填充", fontSize = 12.sp, color = Kongye.Link)
+            StatusPill(KongyeIcons.Upload, "备份", if (hasPassword) "已开启" else "未设置", warn = !hasPassword) {
+                if (hasPassword) backupMenu = true else settingPassword = true
+            }
+            StatusPill(KongyeIcons.Key, "密码填充", if (settings.vaultFill) "已开启" else "已关闭") { AppState.push(Screen.VaultFill) }
         }
         if (entries.isEmpty()) {
             EmptyState("密码空间是空的", "点击右下角 + 添加动态密码或密码")
@@ -235,6 +225,24 @@ fun VaultPage() {
         stopBackup = false
         Settings.updateBackup { it.copy(vaultPassword = "") }
         Toast.done("已关闭密码空间备份")
+    }
+}
+
+/** 顶部的状态胶囊：图标、名称 · 状态、›；warn 时状态用提醒色（如还没设备份密码） */
+@Composable
+private fun StatusPill(icon: ImageVector, label: String, value: String, warn: Boolean = false, onClick: () -> Unit) {
+    Row(
+        Modifier.height(30.dp).clip(RoundedCornerShape(15.dp)).background(Kongye.Field)
+            .clickable(onClick = onClick)
+            .clearAndSetSemantics { contentDescription = "$label：$value"; role = Role.Button }
+            .padding(start = 10.dp, end = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(icon, null, Modifier.size(14.dp), tint = Kongye.Icon2)
+        Spacer(Modifier.width(5.dp))
+        Text(label, fontSize = 13.sp, color = Kongye.Ink2)
+        Text(" · $value", fontSize = 13.sp, color = if (warn) Kongye.Danger else Kongye.Sub)
+        Icon(KongyeIcons.ChevronRight, null, Modifier.size(14.dp), tint = Kongye.Text4)
     }
 }
 

@@ -221,8 +221,8 @@ object V300Regression {
 
                 // ---------- 界面：密码空间 → 密码填充（开关、状态、访问记录）；详情的网址与已用于；编辑页的网址与适用 App ----------
                 main { Settings.update { it.copy(vaultFill = false) }; AppState.filesSub = FilesSub.VAULT; AppState.goHome(Tab.FILES) }
-                waitFor("vault page") { find("Example Mail") != null && findContains("密码填充未开启") != null }
-                click("密码填充")
+                waitFor("vault page") { find("Example Mail") != null && find("密码填充：已关闭") != null }
+                click("密码填充：已关闭")
                 waitFor("fill screen") { find("允许空叶键盘 / 悬浮球读取") != null && find("空叶键盘") != null }
                 check(!Settings.value.vaultFill)
                 click("允许空叶键盘 / 悬浮球读取")
@@ -232,7 +232,7 @@ object V300Regression {
                 Thread.sleep(400)
                 shot("v300-fill-settings.png")
                 auto.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK)
-                waitFor("back on vault") { findContains("已允许空叶键盘") != null && find("Example Web") != null }
+                waitFor("back on vault") { find("密码填充：已开启") != null && find("Example Web") != null }
                 passed("fill-settings-switch-status-and-log-ui")
 
                 click("Example Web")

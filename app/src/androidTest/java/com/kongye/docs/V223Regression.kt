@@ -196,7 +196,7 @@ object V223Regression {
                 waitFor("files header") { find("我的桌面") != null && find("密码空间") != null && find("搜索") != null }
                 click("密码空间")
                 // 2.24 起密码空间也有搜索（只搜密码空间）
-                waitFor("vault page") { find("密码空间是空的") != null && find("未设置备份密码，密码空间不会进入备份") != null && find("搜索") != null }
+                waitFor("vault page") { find("密码空间是空的") != null && find("备份：未设置") != null && find("搜索") != null }
                 shot("v223-vault-empty.png")
                 passed("files-header-switches-to-empty-vault")
 
@@ -247,13 +247,13 @@ object V223Regression {
                 passed("add-password-with-generator-masks-reveals-and-copies")
 
                 // 设置备份密码：输两次
-                click("设置备份密码")
+                click("备份：未设置")
                 waitFor("password dialog") { find("至少 6 位") != null && dialogField(1) != null }
                 typeDialog(0, BACKUP_PASSWORD); typeDialog(1, BACKUP_PASSWORD)
                 Thread.sleep(300)
                 shot("v223-backup-password-dialog.png")
                 click("确定")
-                waitFor("backup password saved") { main { Settings.value.backup.vaultPassword } == BACKUP_PASSWORD && find("已设置备份密码，密码空间加密后随本地 / 云端备份") != null }
+                waitFor("backup password saved") { main { Settings.value.backup.vaultPassword } == BACKUP_PASSWORD && find("备份：已开启") != null }
                 Thread.sleep(800)
                 shot("v223-vault-list.png")
                 main { Settings.update { it.copy(theme = ThemeMode.DARK) } }; Thread.sleep(900)
