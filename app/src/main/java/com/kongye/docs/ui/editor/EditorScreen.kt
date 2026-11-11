@@ -194,6 +194,11 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                 delay(180)
                 panelHeight=height
                 EditorSession.keyboardHeight=height
+            } else if(!returningToKeyboard && editor.commentDraft==null) {
+                // Moving to another paragraph keeps the active tool. Only an
+                // explicit keyboard return or comment input releases its slot.
+                hidingKeyboardForPanel=true
+                keyboard?.hide()
             } else if(returningToKeyboard || !hidingKeyboardForPanel) {
                 // A comment field must own the input session before releasing a tool slot.
                 if(editor.commentDraft!=null) {
@@ -237,6 +242,11 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
         val b = editor.blocks.firstOrNull { it.id == pf.blockId }
         if (b != null) {
             b.value = b.value.copy(selection = TextRange(pf.pos.coerceIn(1, b.value.text.length)))
+            if(panel!=null && !returningToKeyboard && editor.commentDraft==null) {
+                editor.focusedId=b.id
+                editor.pendingFocus=null
+                return@LaunchedEffect
+            }
             withFrameNanos { }
             if(editor.pendingFocus!=pf) return@LaunchedEffect
             runCatching { b.focus.requestFocus() }
@@ -248,8 +258,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
             if(editor.pendingFocus!=pf) return@LaunchedEffect
             runCatching { titleFocus.requestFocus() }
         }
-        if(pf.showKeyboard) {
-            if(panel!=null) returningToKeyboard=true
+        if(pf.showKeyboard && (panel==null || returningToKeyboard)) {
             keyboard?.show()
         }
         editor.pendingFocus = null
@@ -336,6 +345,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
         editor.commentDraft = null
         editor.clearArticleSelection()
         editor.insertionHandle = null
+        editor.imageCaret=null
         focusManager.clearFocus()
         editor.focusedId = null
         editor.focusedCell = null
@@ -411,6 +421,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
             // Keep the slot until the keyboard is fully back; the toolbar stays still.
             returningToKeyboard=true
             hidingKeyboardForPanel=false
+            editor.focused?.let { editor.requestFocus(it,it.value.selection.end) }
             keyboard?.show()
         } else {
             if(panel==null) {
@@ -424,6 +435,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
         }
     }
 
+    androidx.compose.runtime.CompositionLocalProvider(LocalKeepEditorPanel provides (panel!=null && !returningToKeyboard && editor.commentDraft==null)) {
     Column(Modifier.fillMaxSize().background(Kongye.Surface)) {
         // ---------- 顶栏 ----------
         if (editor.findMode) {
@@ -493,6 +505,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                         titleFocused = it.isFocused
                         editor.titleFocused = it.isFocused
                         if (it.isFocused) {
+                            editor.imageCaret=null
                             editor.focusedId = null
                             editor.focusedCell = null
                             panel = null
@@ -623,6 +636,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
         }
     }
 
+    }
     // ---------- 面板 ----------
     when (val s = sheet) {
         EdSheet.Share -> DocShareSheet(docId, onDismiss = { sheet = null }, prepare = { editor.save() })

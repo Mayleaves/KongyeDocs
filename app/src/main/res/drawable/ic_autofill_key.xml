@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 键盘工具栏候选前面的钥匙图标（与密码空间的钥匙图标同一画法） -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#FF417FF9"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M3.9,12a3.6,3.6 0,1 0,7.2 0a3.6,3.6 0,1 0,-7.2 0M11.1,12H20.5M17.5,12v3.2M20.5,12v2.4" />
+</vector>

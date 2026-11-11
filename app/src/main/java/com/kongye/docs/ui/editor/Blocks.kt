@@ -30,6 +30,7 @@ import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -37,6 +38,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,6 +99,7 @@ import java.text.BreakIterator
 import kotlin.math.max
 
 private val lineStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None)
+internal val LocalKeepEditorPanel=staticCompositionLocalOf { false }
 
 fun blockTextStyle(type: BlockType): TextStyle = when (type) {
     BlockType.H1 -> TextStyle(fontSize = 24.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold)
@@ -132,7 +135,10 @@ fun BlockView(
             Modifier.fillMaxWidth().height(30.dp).clickable { onDividerTap(b) },
             contentAlignment = Alignment.Center,
         ) { Box(Modifier.fillMaxWidth().height(1.dp).background(Kongye.Line2)) }
-        BlockType.IMAGE -> ImageBlock(b) { onImageTap(b) }
+        BlockType.IMAGE -> Box {
+            ImageBlock(b) { onImageTap(b) }
+            ImageInsertionField(b,editor,Modifier.align(if(editor.imageCaret?.key==b.id && editor.imageCaret?.offset==2) Alignment.BottomStart else Alignment.TopStart))
+        }
         BlockType.TABLE -> TableBlock(b, editor)
         else -> TextBlock(b, index, editor)
     }
@@ -141,6 +147,7 @@ fun BlockView(
 
 @Composable
 private fun TextBlock(b: BlockState, index: Int, editor: EditorState) {
+    val keepPanel=LocalKeepEditorPanel.current
     val type = b.type
     val base = blockTextStyle(type)
     val style = base.copy(
@@ -210,8 +217,9 @@ private fun TextBlock(b: BlockState, index: Int, editor: EditorState) {
                     b.value.copy(selection = androidx.compose.ui.text.TextRange(b.value.selection.end)) else b.value,
                 onValueChange = { if(inputEpoch==editor.inputEpoch) editor.onValueChange(b, it) },
                 readOnly = editor.findMode,
+                keyboardOptions = KeyboardOptions.Default.copy(showKeyboardOnFocus = !keepPanel),
                 textStyle = style,
-                cursorBrush = SolidColor(Kongye.Primary),
+                cursorBrush = SolidColor(if(editor.focusedId==b.id) Kongye.Primary else Color.Transparent),
                 visualTransformation = transformation,
                 onTextLayout = {
                     editor.layouts[b.id] = it
@@ -234,6 +242,7 @@ private fun TextBlock(b: BlockState, index: Int, editor: EditorState) {
                     }
                     .focusRequester(b.focus).onFocusChanged {
                         if (it.isFocused) {
+                            editor.imageCaret=null
                             editor.focusedId = b.id
                             editor.focusedCell = null
                         }
@@ -302,7 +311,8 @@ internal fun Modifier.textGestures(
     intercept: (Offset) -> (() -> Unit)? = { null },
 ): Modifier {
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    return pointerInput(key) {
+    val keepPanel=LocalKeepEditorPanel.current
+    return pointerInput(key,keepPanel) {
     coroutineScope {
         val selectionScope=this
         var lastUp=0L
@@ -311,6 +321,9 @@ internal fun Modifier.textGestures(
             val down=awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Initial)
             editor.cursorNavigation.reset()
             if(down.isConsumed) return@awaitEachGesture
+            // The document handles positioning while a tool is open. Letting the
+            // field also receive this tap explicitly asks Android to show its IME.
+            if(keepPanel) down.consume()
             editor.keyboardSelection.end()
             editor.cancelCharSelect()
             editor.clearArticleSelection()
@@ -364,8 +377,8 @@ internal fun Modifier.textGestures(
                 lastUp=upTime; lastPos=down.position
                 if (!editor.findMode) layout()?.let { l ->
                     val offset = l.getOffsetForPosition(down.position).coerceIn(minOffset, l.layoutInput.text.length)
-                    editor.placeCaret(SelectionPoint(key, offset), handle = true)
-                    keyboard?.show()
+                    editor.placeCaret(SelectionPoint(key, offset), handle = true, retainInputFocus=keepPanel)
+                    if(!keepPanel) keyboard?.show()
                 }
             }
             else lastUp=0L
@@ -423,6 +436,31 @@ private fun ImageBlock(b: BlockState, onTap: () -> Unit) {
             .clip(RoundedCornerShape(6.dp)).background(Kongye.Bg2).clickable(onClick = onTap),
     ) {
         bitmap?.let { Image(it, "图片", Modifier.fillMaxSize(), contentScale = ContentScale.Crop) }
+    }
+}
+
+/** Only visible while editing this edge; moving here never creates a saved line. */
+@Composable
+private fun ImageInsertionField(b: BlockState,editor: EditorState,modifier: Modifier) {
+    val epoch=editor.inputEpoch
+    val keepPanel=LocalKeepEditorPanel.current
+    val active=editor.imageCaret?.key==b.id
+    DocumentBodyInput(b.id) {
+        BasicTextField(
+            value=androidx.compose.ui.text.input.TextFieldValue(ZWS,androidx.compose.ui.text.TextRange(1)),
+            onValueChange={ if(epoch==editor.inputEpoch && editor.imageCaret?.key==b.id) editor.onValueChange(b,it) },
+            textStyle=blockTextStyle(BlockType.TEXT),
+            cursorBrush=SolidColor(Kongye.Primary),
+            keyboardOptions=KeyboardOptions.Default.copy(showKeyboardOnFocus=!keepPanel),
+            onTextLayout={ editor.layouts[b.id]=it },
+            modifier=modifier.fillMaxWidth().height(if(active) 26.dp else 0.dp).focusRequester(b.focus)
+                .onFocusChanged { focus -> if(focus.isFocused) {
+                    if(editor.imageCaret?.key!=b.id) editor.imageCaret=SelectionPoint(b.id,1)
+                    editor.focusedId=b.id; editor.focusedCell=null; editor.titleFocused=false
+                } }
+                .documentCursorKeys(editor).documentTextMenu(editor)
+                .onGloballyPositioned { editor.selection.register(b.id,it) },
+        )
     }
 }
 

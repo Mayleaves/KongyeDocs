@@ -83,7 +83,7 @@ internal fun DocumentBodyInput(blockId: String,content: @Composable () -> Unit) 
 
 /** Bridge both menu actions and keyboards that implement Select All using setSelection. */
 internal class DocumentInputConnection(target: InputConnection, private val context: Context, private val editor: EditorState, private val documentInput: Boolean = false, private val ime: DocumentIme? = null, private val blockId: String? = null) : InputConnectionWrapper(target,false) {
-    private fun bodyInput() = documentInput && editor.focused?.type?.isText == true && !editor.titleFocused &&
+    private fun bodyInput() = documentInput && editor.bodyInputActive && !editor.titleFocused &&
         editor.focusedCell == null && editor.commentDraft == null && editor.commentView == null && !editor.findMode
     private val handler=Handler(Looper.getMainLooper())
     private fun nativeReady(): Boolean {
@@ -148,6 +148,10 @@ internal class DocumentInputConnection(target: InputConnection, private val cont
     }
     override fun sendKeyEvent(event: KeyEvent): Boolean {
         if(!main { bodyInput() }) return super.sendKeyEvent(event)
+        if(main { editor.imageCaret!=null } && event.keyCode==KeyEvent.KEYCODE_ENTER) {
+            if(event.action==KeyEvent.ACTION_DOWN) main { ime?.insert("\n",1,false); ime?.notifyIme() }
+            return true
+        }
         if(main { bodyInput() }) {
             if(event.keyCode in listOf(KeyEvent.KEYCODE_SHIFT_LEFT,KeyEvent.KEYCODE_SHIFT_RIGHT)) {
                 ime?.shiftHeld=event.action==KeyEvent.ACTION_DOWN

@@ -44,7 +44,11 @@ object FeatureUiRegression {
         fun waitFor(label: String, condition: ()->Boolean) {
             val end=SystemClock.uptimeMillis()+10_000
             while(SystemClock.uptimeMillis()<end) { if(condition()) return; Thread.sleep(40) }
-            error("Timed out: $label")
+            val state=main { EditorSession.current?.let { e -> "focus=${e.focusedId}; range=${e.selection.range}; local=${e.blocks.firstOrNull()?.value?.selection}" } }
+            instrument.uiAutomation.takeScreenshot()?.let { bitmap ->
+                File(context.getExternalFilesDir(null),"editor-regression-failure.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG,100,it) }; bitmap.recycle()
+            }
+            error("Timed out: $label; $state")
         }
         val automation=instrument.uiAutomation
         automation.serviceInfo=automation.serviceInfo.apply { flags=flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS }
@@ -60,12 +64,14 @@ object FeatureUiRegression {
             return roots.firstNotNullOfOrNull { walk(it) }
         }
         fun boundsFor(node: AccessibilityNodeInfo)=Rect().also { node.getBoundsInScreen(it) }
+        var lastInjectedUp=0L
         fun touch(x: Float,y: Float,hold: Long=45) {
             val start=SystemClock.uptimeMillis()
             val down=MotionEvent.obtain(start,start,MotionEvent.ACTION_DOWN,x,y,0).apply { source=InputDevice.SOURCE_TOUCHSCREEN }
             check(automation.injectInputEvent(down,true)); down.recycle()
             Thread.sleep(hold)
-            val up=MotionEvent.obtain(start,SystemClock.uptimeMillis(),MotionEvent.ACTION_UP,x,y,0).apply { source=InputDevice.SOURCE_TOUCHSCREEN }
+            lastInjectedUp=SystemClock.uptimeMillis()
+            val up=MotionEvent.obtain(start,lastInjectedUp,MotionEvent.ACTION_UP,x,y,0).apply { source=InputDevice.SOURCE_TOUCHSCREEN }
             check(automation.injectInputEvent(up,true)); up.recycle()
         }
         val fixture=object: ContextWrapper(context) {
@@ -264,7 +270,12 @@ object FeatureUiRegression {
         Thread.sleep(900)
         repeat(8) { attempt ->
             val point=position(if(attempt%2==0) "乙" else "丙")
-            touch(point.first,point.second); Thread.sleep(listOf(70L,130L,210L)[attempt%3]); touch(point.first,point.second)
+            touch(point.first,point.second)
+            // injectInputEvent waits for delivery. Count that delay as part of
+            // the requested up-to-down interval on slower devices as well.
+            val pause=listOf(70L,130L,210L)[attempt%3]-(SystemClock.uptimeMillis()-lastInjectedUp)
+            if(pause>0) Thread.sleep(pause)
+            touch(point.first,point.second)
             waitFor("double tap character $attempt") {
                 main { val b=EditorSession.current!!.blocks.first(); b.value.selection.length==1 && b.value.text.substring(b.value.selection.min,b.value.selection.max)==if(attempt%2==0) "乙" else "丙" }
             }

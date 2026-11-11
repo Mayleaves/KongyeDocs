@@ -84,7 +84,7 @@ fun EditorToolbar(
     onUndo: () -> Unit = { editor.undo() },
     onRedo: () -> Unit = { editor.redo() },
 ) {
-    val b = editor.focused
+    val b = editor.focused?.takeUnless { it.type==BlockType.IMAGE }
     val order by Repository.toolbar.collectAsState()
     Column(Modifier.fillMaxWidth().background(Kongye.Surface).semantics { contentDescription="编辑工具栏" }) {
         HLine()

@@ -16,8 +16,8 @@ android {
         applicationId = "com.kongye.docs"
         minSdk = 26
         targetSdk = 36
-        versionCode = if (updateFixture) providers.gradleProperty("fixtureCode").get().toInt() else 46
-        versionName = if (updateFixture) providers.gradleProperty("fixtureVersion").get() else "3.2"
+        versionCode = if (updateFixture) providers.gradleProperty("fixtureCode").get().toInt() else 47
+        versionName = if (updateFixture) providers.gradleProperty("fixtureVersion").get() else "3.3"
         testInstrumentationRunner = "com.kongye.docs.RegressionInstrumentation"
         manifestPlaceholders["appLabel"] = "空叶文档"
     }
@@ -58,5 +58,7 @@ dependencies {
     // WebDAV 自动备份（MKCOL / PROPFIND 等方法 HttpURLConnection 不支持）
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("androidx.exifinterface:exifinterface:1.4.2")
+    // 3.3 系统自动填充：显示在键盘工具栏里的候选（InlineSuggestionUi）
+    implementation("androidx.autofill:autofill:1.1.0")
     debugImplementation("androidx.compose.ui:ui-tooling")
 }

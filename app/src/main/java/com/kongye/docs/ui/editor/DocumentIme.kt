@@ -1,6 +1,7 @@
 package com.kongye.docs.ui.editor
 
 import android.content.Context
+import com.kongye.docs.data.BlockType
 import android.view.View
 import android.view.inputmethod.ExtractedText
 import android.view.inputmethod.InputMethodManager
@@ -13,8 +14,11 @@ internal class DocumentIme(private val editor: EditorState, private val view: Vi
     data class Snapshot(val text: String, val entries: List<Entry>, val start: Int, val end: Int, val composingStart: Int, val composingEnd: Int) {
         fun offset(point: SelectionPoint): Int? = entries.firstOrNull { it.block.id == point.key }
             ?.let { it.start + (point.offset - 1).coerceIn(0, it.length) }
-        fun point(offset: Int): SelectionPoint? {
+        fun point(offset: Int, images: Boolean = false): SelectionPoint? {
             val at = offset.coerceIn(0, text.length)
+            if(images) entries.firstOrNull { it.block.type==BlockType.IMAGE && at in it.start..it.start+1 }?.let {
+                return SelectionPoint(it.block.id,1+at-it.start)
+            }
             val entry = entries.firstOrNull { it.block.type.isText && at in it.start..it.start + it.length }
                 ?: entries.firstOrNull { it.block.type.isText && it.start >= at }
                 ?: entries.lastOrNull { it.block.type.isText } ?: return null
@@ -42,7 +46,7 @@ internal class DocumentIme(private val editor: EditorState, private val view: Vi
     var batchDepth = 0
     var nativeEpoch = -1
     private var directed: Pair<SelectionPoint, SelectionPoint>? = null
-    val available get() = active && editor.focused?.type?.isText == true && !editor.titleFocused &&
+    val available get() = active && editor.bodyInputActive && !editor.titleFocused &&
         editor.focusedCell == null && editor.commentDraft == null && editor.commentView == null && !editor.findMode
 
     fun snapshot(): Snapshot {
@@ -58,9 +62,9 @@ internal class DocumentIme(private val editor: EditorState, private val view: Vi
         val direction = directed?.takeIf { (a,b) -> range != null &&
             setOf(a,b) == setOf(range.start,range.end) }
         val focused = editor.focused
-        val start = if (range != null) offset(direction?.first ?: range.start)
+        val start = if(editor.imageCaret!=null && range==null) offset(editor.imageCaret!!) else if (range != null) offset(direction?.first ?: range.start)
             else focused?.let { offset(SelectionPoint(it.id,it.value.selection.start)) } ?: 0
-        val end = if (range != null) offset(direction?.second ?: range.end)
+        val end = if(editor.imageCaret!=null && range==null) start else if (range != null) offset(direction?.second ?: range.end)
             else focused?.let { offset(SelectionPoint(it.id,it.value.selection.end)) } ?: start
         val composition = focused?.value?.composition?.takeIf { range == null }
         return Snapshot(text.toString(),entries,start,end,
@@ -85,8 +89,8 @@ internal class DocumentIme(private val editor: EditorState, private val view: Vi
     fun select(start: Int, end: Int): Boolean {
         if (start < 0 || end < 0) return false
         val state = snapshot()
-        val a = state.point(start) ?: return false
-        val b = state.point(end) ?: return false
+        val a = state.point(start,images=start==end) ?: return false
+        val b = state.point(end,images=start==end) ?: return false
         if (editor.selection.range?.let { setOf(it.start,it.end)==setOf(a,b) }==true) {
             directed=a to b
             return true
@@ -101,7 +105,7 @@ internal class DocumentIme(private val editor: EditorState, private val view: Vi
         } else {
             val liveInput = editor.focusedId
             editor.selection.set(a,b,entire = minOf(start,end) == 0 && maxOf(start,end) >= state.text.length)
-            editor.focusedId = liveInput
+            editor.focusedId = liveInput?.takeIf { id -> editor.blocks.any { it.id==id && it.type.isText } } ?: a.key
             directed = a to b
         }
         editor.keyboardSelection.reveal(b)
@@ -121,6 +125,7 @@ internal class DocumentIme(private val editor: EditorState, private val view: Vi
     fun insert(text: CharSequence?, cursor: Int, composing: Boolean): Boolean {
         val insertion = text?.toString().orEmpty().replace(ZWS,"")
         directed = null
+        if(editor.imageCaret!=null) return editor.insertAtImageCaret(insertion,composing)
         if (editor.selection.active) {
             editor.selection.replace(insertion)
             val target = editor.pendingFocus?.let { focus -> editor.blocks.firstOrNull { it.id == focus.blockId } } ?: editor.focused

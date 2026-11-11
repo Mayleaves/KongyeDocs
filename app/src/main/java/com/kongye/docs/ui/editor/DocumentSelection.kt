@@ -39,6 +39,7 @@ class DocumentSelection(internal val editor: EditorState) {
     private fun compare(a: SelectionPoint, b: SelectionPoint): Int = if (a.key == b.key) a.offset.compareTo(b.offset) else index(a.key).compareTo(index(b.key))
 
     fun set(a: SelectionPoint, b: SelectionPoint, entire: Boolean = false) {
+        editor.imageCaret=null
         val inputFocus = editor.focusedId
         val left = point(a); val right = point(b)
         if (left == right && !entire) return

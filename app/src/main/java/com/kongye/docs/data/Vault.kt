@@ -51,6 +51,10 @@ data class VaultEntry(
     val apps: List<String> = emptyList(),
     /** 最近一次被键盘 / 悬浮球取用的时间，用于推荐排序；0 表示没用过 */
     val lastUsedAt: Long = 0L,
+    /** 3.3：关联 App 时记下的签名证书 SHA-256（包名 → 证书），只在证书相同时推荐；旧数据没有时为空 */
+    val appCerts: Map<String, String> = emptyMap(),
+    /** 3.3：注册时页面写的密码要求（仿 passwordrules 格式），以后改密码时直接用；没有时为空 */
+    val passwordRules: String = "",
 ) {
     val pinned get() = pinnedAt > 0L
 
@@ -77,6 +81,9 @@ data class VaultEntry(
         }
         val apps = next.apps.map { it.trim() }.filter { it.isNotEmpty() }.distinct()
         if (apps != next.apps) next = next.copy(apps = apps)
+        // 移除的 App 不再保留证书
+        val certs = next.appCerts.filterKeys { it in next.apps }
+        if (certs != next.appCerts) next = next.copy(appCerts = certs)
         return next
     }
 
@@ -188,7 +195,7 @@ object VaultStore {
     @Synchronized
     fun dropApps(drop: (String) -> Boolean) {
         if (!healthy) return
-        val next = _entries.value.map { e -> e.apps.filterNot(drop).let { if (it.size == e.apps.size) e else e.copy(apps = it) } }
+        val next = _entries.value.map { e -> e.apps.filterNot(drop).let { if (it.size == e.apps.size) e else e.copy(apps = it).normalized() } }
         if (next != _entries.value) runCatching { persist(next) }
     }
 

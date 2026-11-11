@@ -5,27 +5,33 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.ApplicationInfo
 import android.os.Bundle
+import android.view.autofill.AutofillManager
 import com.kongye.docs.data.Settings
 import com.kongye.docs.data.VaultAccessLog
 import com.kongye.docs.data.VaultAccessRecord
 import com.kongye.docs.data.VaultEntry
-import com.kongye.docs.data.VaultPasswords
-import com.kongye.docs.data.VaultStore
 import com.kongye.docs.data.VaultField
+import com.kongye.docs.data.VaultStore
+import com.kongye.docs.data.VaultType
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import com.kongye.docs.data.VaultType
 
 /**
- * 密码空间的对外接口（接口 v1，见 docs/密码填充-接口与任务.md 第 1 节）。
+ * 密码空间的对外接口（接口 v1，见 docs/密码填充-接口与任务.md 第 1 节；v1.1 新增见 docs/密码填充-需求文档-v2.md 第 7 节）。
  * VaultProvider 只负责把 ContentResolver.call 转到这里；测试也直接调 handle 检查白名单。
+ * 系统自动填充（autofill/）不经过 Provider，直接用这里的 match / saveCredential。
  */
 object VaultApi {
+    /** 保持 1：v1 的键盘和悬浮球只认 1。新能力看 features */
     const val VERSION = 1
+    val FEATURES = listOf("generate.rules", "save.fields", "match.cert")
 
     /** 调用方白名单（签名权限之外的第二道） */
     val CALLERS = setOf("com.kongye.keyboard", "com.kongye.keyboard.debug", "com.kongye.floatball")
+
+    /** 系统自动填充写进访问记录时用的调用方 */
+    const val AUTOFILL_CALLER = "android.autofill"
 
     const val OK = "ok"
     const val LOCKED = "locked"
@@ -33,6 +39,8 @@ object VaultApi {
     const val DENIED = "denied"
     const val NOT_FOUND = "not_found"
     const val ERROR = "error"
+    /** v1.1：条目关联的 App 证书和现在不一样 */
+    const val CERT_MISMATCH = "cert_mismatch"
 
     /** 调试版（.audit 等）额外允许自己调自己，方便在测试包里跑通接口；正式版不可调试，不生效 */
     fun allowed(context: Context, caller: String?): Boolean =
@@ -43,6 +51,8 @@ object VaultApi {
         val target = x.getString("package").orEmpty().trim()
         val app = target.takeUnless { Browsers.isBrowser(context, it) }.orEmpty()
         val domain = host(x.getString("domain").orEmpty()).orEmpty()
+        // v1.1 调用方声明自己认识 cert_mismatch；v1 的不认识，就不给它这类条目
+        val certAware = x.getStringArrayList("features")?.contains("match.cert") == true
         var entryName = ""
         val result = try {
             when {
@@ -51,13 +61,15 @@ object VaultApi {
                 !Settings.value.vaultFill -> status(DISABLED)
                 !VaultStore.healthy -> status(ERROR).apply { putString("message", "密码空间读取失败") }
                 else -> when (method) {
-                    "match" -> entries(match(app, domain))
+                    "match" -> entries(match(app, domain) { AppCerts.of(context, it) }.filter { certAware || it.second != CERT_MISMATCH })
                     "search" -> entries(search(x.getString("query").orEmpty()).map { it to "search" })
                     "reveal" -> {
                         val e = VaultStore.get(x.getString("id").orEmpty())
                         entryName = e?.name.orEmpty()
                         when {
                             e == null -> status(NOT_FOUND)
+                            // 条目记过这个 App 的证书、但现在的不一样：调用方提示用户并带上 confirmCert 才给
+                            !x.getBoolean("confirmCert") && !certOk(context, e, app) -> status(CERT_MISMATCH)
                             !VaultAccess.isUnlocked(context) -> status(LOCKED).apply { putParcelable("unlock", unlockIntent(context, caller.orEmpty(), e)) }
                             else -> {
                                 VaultStore.update(e.id) { it.copy(lastUsedAt = System.currentTimeMillis()) }
@@ -65,13 +77,21 @@ object VaultApi {
                             }
                         }
                     }
-                    "generate" -> status(OK).apply {
-                        putString("password", VaultPasswords.generate(if (x.containsKey("length")) x.getInt("length") else VaultPasswords.DEFAULT_LENGTH))
+                    "generate" -> {
+                        val g = PasswordRules.generate(PasswordRules.fromBundle(x))
+                        status(OK).apply { putString("password", g.password); putString("summary", g.summary); putBoolean("satisfied", g.satisfied) }
                     }
-                    "save" -> save(context, x, app, domain).also { entryName = it.getString("name").orEmpty(); it.remove("name") }
+                    "save" -> {
+                        val input = SaveInput.from(x, app, domain)
+                        if (input.password.isEmpty()) status(ERROR).apply { putString("message", "密码为空") }
+                        else saveCredential(context, input).let { r ->
+                            entryName = r.name
+                            status(OK).apply { putString("id", r.id); putString("result", r.result); putInt("fields", r.fields) }
+                        }
+                    }
                     "bind" -> {
                         val id = x.getString("id").orEmpty()
-                        val e = VaultStore.update(id) { if (app.isEmpty() && domain.isEmpty()) it else bind(it, app, domain) }
+                        val e = VaultStore.update(id) { if (app.isEmpty() && domain.isEmpty()) it else bind(it, app, domain, AppCerts.of(context, app)) }
                         entryName = e?.name.orEmpty()
                         if (e == null) status(NOT_FOUND) else status(OK)
                     }
@@ -82,34 +102,56 @@ object VaultApi {
             status(ERROR).apply { putString("message", t.message ?: t.javaClass.simpleName) }
         }
         // status 调用很频繁，不记；其余每次都记（不记账号、密码）
-        if (method != "status") runCatching {
-            VaultAccessLog.add(VaultAccessRecord(caller = caller.orEmpty(), method = method, target = target, domain = domain, entry = entryName, status = result.getString("status").orEmpty()))
-        }
+        if (method != "status") log(caller.orEmpty(), method, target, domain, entryName, result.getString("status").orEmpty())
         return result
+    }
+
+    fun log(caller: String, method: String, target: String, domain: String, entry: String, status: String) {
+        runCatching { VaultAccessLog.add(VaultAccessRecord(caller = caller, method = method, target = target, domain = domain, entry = entry, status = status)) }
     }
 
     private fun status(value: String) = Bundle().apply { putString("status", value) }
 
+    /** 空叶文档现在是不是系统选中的自动填充服务 */
+    fun autofillEnabled(context: Context): Boolean =
+        runCatching { context.getSystemService(AutofillManager::class.java)?.hasEnabledAutofillServices() == true }.getOrDefault(false)
+
     private fun statusOf(context: Context): Bundle {
         val enabled = Settings.value.vaultFill
         val until = VaultAccess.unlockedUntil(context)
+        val autofill = autofillEnabled(context)
         return status(if (enabled) OK else DISABLED).apply {
             putInt("version", VERSION)
             putBoolean("enabled", enabled)
             putBoolean("unlocked", until > 0L)
             putLong("unlockExpiresAt", until)
+            putBoolean("autofill", autofill)
+            putStringArrayList("features", ArrayList(FEATURES + if (autofill) listOf("autofill") else emptyList()))
         }
     }
 
     /** 能拿来填的条目：有账号或密码 */
-    private fun fillable() = VaultStore.entries.value.filter { it.account.isNotBlank() || it.password.isNotEmpty() }
+    fun fillable() = VaultStore.entries.value.filter { it.account.isNotBlank() || it.password.isNotEmpty() }
 
-    /** 按包名命中 > 按域名命中 > 最近使用 */
-    fun match(target: String, domain: String): List<Pair<VaultEntry, String>> {
+    /** 条目能不能给这个 App 用：没记过证书，或者证书相同 */
+    fun certOk(context: Context, e: VaultEntry, app: String): Boolean {
+        if (app.isEmpty()) return true
+        val recorded = e.appCerts[app] ?: return true
+        return AppCerts.matches(recorded, AppCerts.of(context, app))
+    }
+
+    /**
+     * 按包名命中 > 按域名命中 > 最近使用。
+     * 包名命中、但记下的证书和现在不一样的，放在最后，matchedBy = cert_mismatch，调用方不能把它当推荐。
+     */
+    fun match(target: String, domain: String, certOf: (String) -> String? = { null }): List<Pair<VaultEntry, String>> {
         val byPackage = if (target.isEmpty()) emptyList() else fillable().filter { target in it.apps }
+        val current by lazy { certOf(target) }
+        val (trusted, mismatched) = byPackage.partition { e -> e.appCerts[target]?.let { AppCerts.matches(it, current) } ?: true }
         val byDomain = if (domain.isEmpty()) emptyList() else fillable().filter { it !in byPackage && sameSite(host(it.url), domain) }
-        return byPackage.sortedByDescending { it.lastUsedAt }.map { it to "package" } +
-            byDomain.sortedByDescending { it.lastUsedAt }.map { it to "domain" }
+        return trusted.sortedByDescending { it.lastUsedAt }.map { it to "package" } +
+            byDomain.sortedByDescending { it.lastUsedAt }.map { it to "domain" } +
+            mismatched.sortedByDescending { it.lastUsedAt }.map { it to CERT_MISMATCH }
     }
 
     fun search(query: String): List<VaultEntry> =
@@ -121,8 +163,10 @@ object VaultApi {
         }))
     }
 
-    private fun bind(e: VaultEntry, target: String, domain: String) = e.copy(
+    /** 关联 App / 网址；带上 App 当前的证书（取不到就不记） */
+    fun bind(e: VaultEntry, target: String, domain: String, cert: String? = null) = e.copy(
         apps = if (target.isEmpty() || target in e.apps) e.apps else e.apps + target,
+        appCerts = if (target.isEmpty() || cert == null) e.appCerts else e.appCerts + (target to cert),
         url = if (e.url.isBlank() && domain.isNotEmpty()) domain else e.url,
     )
 
@@ -136,29 +180,100 @@ object VaultApi {
             VaultField(label = "$OLD_PASSWORD $stamp", value = e.password, secret = true))
     }
 
-    /** 普通 App 按账号和包名更新；网页按账号和规范化主机名完全相同更新。 */
-    private fun save(context: Context, x: Bundle, app: String, domain: String): Bundle {
-        val account = x.getString("account").orEmpty().trim()
-        val password = x.getString("password").orEmpty()
-        if (password.isEmpty()) return status(ERROR).apply { putString("message", "密码为空") }
-        val existing = VaultStore.entries.value.firstOrNull {
-            it.type == VaultType.PASSWORD && it.account == account && when {
-                app.isNotEmpty() -> app in it.apps
-                domain.isNotEmpty() -> host(it.url) == domain
-                else -> false
+    // ---------- 保存（v1.1：多字段、页面类型、改密码） ----------
+
+    /** 一个要存的字段：type = username / phone / email / other */
+    data class SaveField(val type: String, val label: String, val value: String, val secret: Boolean = false) {
+        val storedLabel: String get() = when (type) {
+            "username" -> "用户名"
+            "phone" -> "手机号"
+            "email" -> "邮箱"
+            else -> label.trim().take(20).ifEmpty { "其他" }
+        }
+    }
+
+    data class SaveInput(
+        val app: String, val domain: String, val name: String, val account: String, val password: String,
+        val kind: String = "login", val fields: List<SaveField> = emptyList(), val currentPassword: String = "", val rules: String = "",
+    ) {
+        /** 没传账号时：用户名 → 手机号 → 邮箱 */
+        val resolvedAccount: String get() = account.trim().ifEmpty {
+            listOf("username", "phone", "email").firstNotNullOfOrNull { t -> fields.firstOrNull { it.type == t && it.value.isNotBlank() }?.value?.trim() }.orEmpty()
+        }
+
+        companion object {
+            fun from(x: Bundle, app: String, domain: String): SaveInput {
+                @Suppress("DEPRECATION") val rows = x.getParcelableArrayList<Bundle>("fields").orEmpty()
+                return SaveInput(
+                    app = app, domain = domain, name = x.getString("name").orEmpty().trim(),
+                    account = x.getString("account").orEmpty().trim(), password = x.getString("password").orEmpty(),
+                    kind = x.getString("kind").orEmpty().ifEmpty { "login" },
+                    fields = rows.take(20).map { SaveField(it.getString("type").orEmpty(), it.getString("label").orEmpty(), it.getString("value").orEmpty().take(500), it.getBoolean("secret")) },
+                    currentPassword = x.getString("currentPassword").orEmpty(),
+                    rules = x.getString("rules").orEmpty().take(500),
+                )
             }
         }
-        if (existing != null) {
-            val next = replacePassword(bind(existing, app, domain), password).copy(lastUsedAt = System.currentTimeMillis())
-            VaultStore.save(next)
-            return status(OK).apply { putString("id", existing.id); putString("result", "updated"); putString("name", existing.name) }
+    }
+
+    data class SaveResult(val id: String, val result: String, val name: String, val fields: Int)
+
+    /**
+     * 普通 App 按账号和包名更新；网页按账号和规范化主机名完全相同更新；都没有时一律新建。
+     * 改密码（kind = change）且给了当前密码：同一个 App / 网站下密码等于当前密码的那一条优先。
+     */
+    /** 保存时会更新哪一条；null 表示会新建（确认页用来提示"更新 XX"还是"新建"） */
+    fun findExisting(input: SaveInput): VaultEntry? {
+        val app = input.app
+        val domain = input.domain
+        val account = input.resolvedAccount
+        fun sameScope(e: VaultEntry) = when {
+            app.isNotEmpty() -> app in e.apps
+            domain.isNotEmpty() -> host(e.url) == domain
+            else -> false
         }
-        val name = x.getString("name").orEmpty().trim().ifEmpty { appLabel(context, app) ?: domain.ifEmpty { "网页密码" } }
-        val created = VaultStore.add(VaultEntry(
-            type = VaultType.PASSWORD, name = name, account = account, password = password,
-            url = domain, apps = listOfNotNull(app.ifEmpty { null }), lastUsedAt = System.currentTimeMillis(),
-        ))
-        return status(OK).apply { putString("id", created.id); putString("result", "created"); putString("name", created.name) }
+        val passwords = VaultStore.entries.value.filter { it.type == VaultType.PASSWORD }
+        return (if (input.kind == "change" && input.currentPassword.isNotEmpty())
+            passwords.firstOrNull { sameScope(it) && it.password == input.currentPassword && (account.isEmpty() || it.account == account) } else null)
+            ?: passwords.firstOrNull { it.account == account && sameScope(it) }
+    }
+
+    fun saveCredential(context: Context, input: SaveInput): SaveResult {
+        val app = input.app
+        val domain = input.domain
+        val account = input.resolvedAccount
+        val existing = findExisting(input)
+        val cert = AppCerts.of(context, app)
+        val extra = input.fields.filter { it.value.isNotBlank() && it.value.trim() != account && !it.storedLabel.startsWith(OLD_PASSWORD) }
+        if (existing != null) {
+            var next = replacePassword(bind(existing, app, domain, cert), input.password)
+            next = mergeFields(next, extra)
+            if (input.rules.isNotEmpty()) next = next.copy(passwordRules = input.rules)
+            if (next.account.isEmpty() && account.isNotEmpty()) next = next.copy(account = account)
+            VaultStore.save(next.copy(lastUsedAt = System.currentTimeMillis()))
+            return SaveResult(existing.id, "updated", existing.name, extra.size)
+        }
+        val name = input.name.ifEmpty { appLabel(context, app) ?: domain.ifEmpty { "网页密码" } }
+        val created = VaultStore.add(mergeFields(VaultEntry(
+            type = VaultType.PASSWORD, name = name, account = account, password = input.password,
+            url = domain, apps = listOfNotNull(app.ifEmpty { null }),
+            appCerts = if (app.isNotEmpty() && cert != null) mapOf(app to cert) else emptyMap(),
+            passwordRules = input.rules, lastUsedAt = System.currentTimeMillis(),
+        ), extra))
+        return SaveResult(created.id, "created", created.name, extra.size)
+    }
+
+    /** 同名字段覆盖，没有就加在后面 */
+    private fun mergeFields(e: VaultEntry, fields: List<SaveField>): VaultEntry {
+        var list = e.fields
+        for (f in fields) {
+            val label = f.storedLabel
+            val value = f.value.trim()
+            val i = list.indexOfFirst { it.label == label }
+            list = if (i >= 0) list.toMutableList().also { it[i] = it[i].copy(value = value, secret = f.secret) }
+            else list + VaultField(label = label, value = value, secret = f.secret)
+        }
+        return if (list == e.fields) e else e.copy(fields = list)
     }
 
     private fun unlockIntent(context: Context, caller: String, e: VaultEntry): PendingIntent {

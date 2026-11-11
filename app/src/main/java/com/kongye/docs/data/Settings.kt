@@ -59,6 +59,10 @@ data class AppSettings(
     val firstUse: Long = 0L,
     /** 密码空间 → 密码填充：允许空叶键盘 / 悬浮球通过对外接口读取，默认关闭 */
     val vaultFill: Boolean = false,
+    /** 3.3 系统自动填充：下拉框 / 键盘候选里显示完整账号；默认显示打码账号 */
+    val autofillFullAccount: Boolean = false,
+    /** 3.3 系统自动填充：保存前先打开确认页（可改名称、取消勾选字段）；关闭则直接保存 */
+    val autofillConfirmSave: Boolean = true,
 )
 
 /** 应用设置，单独存在 settings.json（与笔记数据分开） */

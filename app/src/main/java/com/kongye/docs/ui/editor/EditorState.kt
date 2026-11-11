@@ -84,6 +84,9 @@ class EditorState(val docId: String, val isNew: Boolean) {
     /** 标题输入框是否有焦点（插入手柄判断用） */
     var titleFocused by mutableStateOf(false)
     internal val titleFocus = FocusRequester()
+    // An insertion position at an image edge is not a saved empty paragraph.
+    internal var imageCaret by mutableStateOf<SelectionPoint?>(null)
+    internal val bodyInputActive get() = focused?.type?.let { it.isText || it == BlockType.IMAGE && imageCaret?.key == focusedId } == true
 
     /**
      * 点在字与字之间放下光标时，光标下方显示蓝色插入手柄（可拖动移动光标）；
@@ -94,9 +97,19 @@ class EditorState(val docId: String, val isNew: Boolean) {
     internal var insertionDragRoot by mutableStateOf<androidx.compose.ui.geometry.Offset?>(null)
 
     /** Move a caret and its live input session together; no edit or undo entry. */
-    internal fun placeCaret(point: SelectionPoint, handle: Boolean = false, deferFocus: Boolean = false) {
+    internal fun placeCaret(point: SelectionPoint, handle: Boolean = false, deferFocus: Boolean = false, retainInputFocus: Boolean = false) {
         cancelCharSelect()
         pendingFocus = null
+        val image=blocks.firstOrNull { it.id==point.key && it.type==BlockType.IMAGE }
+        if(image!=null) {
+            imageCaret=point.copy(offset=point.offset.coerceIn(1,2))
+            focusedId=image.id; focusedCell=null; titleFocused=false
+            insertionHandle=null
+            requestFocus(image,1,showKeyboard=false)
+            keyboardSelection.reveal(imageCaret!!)
+            return
+        }
+        imageCaret=null
         if (point.key == TITLE_KEY) {
             title = title.copy(selection = TextRange(point.offset.coerceIn(0, title.text.length)), composition = null)
             if (!titleFocused) {
@@ -107,7 +120,10 @@ class EditorState(val docId: String, val isNew: Boolean) {
             val b = blocks.firstOrNull { it.id == point.key && it.type.isText } ?: return
             b.value = b.value.copy(selection = TextRange(point.offset.coerceIn(1, b.value.text.length)), composition = null)
             b.typing = null
-            if (deferFocus) {
+            if(retainInputFocus) {
+                focusedId=b.id
+                focusedCell=null
+            } else if (deferFocus) {
                 focusedId = b.id
                 focusedCell = null
                 requestFocus(b, point.offset, showKeyboard = false)
@@ -294,7 +310,7 @@ class EditorState(val docId: String, val isNew: Boolean) {
 
     // ---------------- 撤销 / 重做 ----------------
 
-    private fun snap() = Snap(title.text, blocks.map { it.toBlock() }, focusedId, focused?.value?.selection?.start ?: 1)
+    private fun snap() = Snap(title.text, blocks.map { it.toBlock() }, focusedId, imageCaret?.takeIf { it.key==focusedId }?.offset ?: focused?.value?.selection?.start ?: 1)
 
     fun checkpoint() {
         undoStack.addLast(snap())
@@ -334,7 +350,7 @@ class EditorState(val docId: String, val isNew: Boolean) {
         val currentCell=focusedCell
         // Transfer focus before removing a split paragraph when its original
         // field still exists; the IME never has to close between the two fields.
-        previous[s.focusId]?.takeIf { it.type.isText && it.id!=currentFocus && showKeyboard }?.let {
+        previous[s.focusId]?.takeIf { (it.type.isText || it.type==BlockType.IMAGE) && it.id!=currentFocus && showKeyboard }?.let {
             runCatching { it.focus.requestFocus() }
         }
         val attachedFocus=focusedId
@@ -347,9 +363,10 @@ class EditorState(val docId: String, val isNew: Boolean) {
         }
         blocks.clear(); blocks.addAll(restored)
         if (blocks.isEmpty()) blocks += BlockState(Block())
-        val target=blocks.firstOrNull { it.id==s.focusId && it.type.isText }
+        val target=blocks.firstOrNull { it.id==s.focusId && (it.type.isText || it.type==BlockType.IMAGE) }
             ?: blocks.firstOrNull { it.id==currentFocus && it.type.isText }
         focusedId=target?.id
+        imageCaret=target?.takeIf { it.type==BlockType.IMAGE }?.let { SelectionPoint(it.id,s.pos.coerceIn(1,2)) }
         focusedCell=if(target!=null) null else currentCell?.takeIf { cell ->
             blocks.firstOrNull { it.id==cell.blockId && it.type==BlockType.TABLE }?.table?.getOrNull(cell.row)?.getOrNull(cell.col)!=null
         }
@@ -396,6 +413,7 @@ class EditorState(val docId: String, val isNew: Boolean) {
     // ---------------- 文本输入 ----------------
 
     fun onValueChange(b: BlockState, incoming: TextFieldValue) {
+        if(b.type==BlockType.IMAGE) { insertAtImageCaret(incoming.text.removePrefix(ZWS),incoming.composition!=null); return }
         // 已被合并删除、但输入框还没销毁的块（失焦时会再回调一次），不再处理
         if (b !in blocks) return
         // 开始打字：插入手柄消失，只留普通文本光标
@@ -911,6 +929,31 @@ class EditorState(val docId: String, val isNew: Boolean) {
 
     // ---------------- 块的插入与删除 ----------------
 
+    internal fun insertAtImageCaret(text: String, composing: Boolean = false): Boolean {
+        val point=imageCaret ?: return false
+        val image=blocks.firstOrNull { it.id==point.key && it.type==BlockType.IMAGE } ?: return false
+        val insertion=text.replace("\r\n","\n").replace('\r','\n').replace(ZWS,"")
+        if(insertion.isEmpty()) return true
+        checkpoint()
+        val before=point.offset==1
+        val remainsAtImage=before && insertion.endsWith('\n')
+        val lines=insertion.split('\n').let { if(remainsAtImage) it.dropLast(1) else it }
+        val added=lines.map { BlockState(Block(text=it)) }
+        blocks.addAll(blocks.indexOf(image)+if(before) 0 else 1,added)
+        if(remainsAtImage) {
+            requestFocus(image,1)
+        } else {
+            val target=added.last()
+            imageCaret=null
+            focusedId=target.id
+            if(composing && !insertion.contains('\n')) target.value=target.value.copy(composition=TextRange(1,target.value.text.length))
+            requestFocus(target,target.value.text.length)
+        }
+        invalidateImeCallbacks()
+        changed()
+        return true
+    }
+
     private fun insertAfter(anchor: BlockState, nb: BlockState) {
         blocks.add(blocks.indexOf(anchor) + 1, nb)
         requestFocus(nb, 1)
@@ -939,6 +982,7 @@ class EditorState(val docId: String, val isNew: Boolean) {
         blocks.remove(b)
         if (blocks.isEmpty()) blocks += BlockState(Block())
         if (focusedCell?.blockId == b.id) focusedCell = null
+        if(imageCaret?.key==b.id) { imageCaret=null; focusedId=null }
         changed()
     }
 

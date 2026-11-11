@@ -5,6 +5,7 @@ import androidx.compose.ui.geometry.Offset
 import android.view.KeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import java.text.BreakIterator
+import com.kongye.docs.data.BlockType
 
 /** IME direction keys and physical arrow keys both pass through this modifier. */
 internal fun Modifier.documentCursorKeys(editor: EditorState): Modifier = onPreviewKeyEvent { event ->
@@ -51,6 +52,15 @@ internal class DocumentCursorNavigation(private val editor: EditorState) {
             editor.placeCaret(point, deferFocus = true)
             return true
         }
+        editor.imageCaret?.let { point ->
+            val index=editor.blocks.indexOfFirst { it.id==point.key }
+            if(forward && point.offset==1) { editor.placeCaret(point.copy(offset=2),deferFocus=true); return true }
+            if(!forward && point.offset==2) { editor.placeCaret(point.copy(offset=1),deferFocus=true); return true }
+            val indices=if(forward) (index+1 until editor.blocks.size) else (index-1 downTo 0)
+            val next=indices.firstOrNull { editor.blocks[it].type.isText || editor.blocks[it].type==BlockType.IMAGE }?.let { editor.blocks[it] }
+            next?.let { editor.placeCaret(SelectionPoint(it.id,if(forward) 1 else if(it.type.isText) it.value.text.length else 2),deferFocus=true) }
+            return true
+        }
         return if (event.keyCode == KeyEvent.KEYCODE_DPAD_LEFT || event.keyCode == KeyEvent.KEYCODE_DPAD_RIGHT)
             horizontal(key, forward) else move(key, forward)
     }
@@ -71,8 +81,8 @@ internal class DocumentCursorNavigation(private val editor: EditorState) {
         } else {
             val index = editor.blocks.indexOf(b)
             val indices = if (forward) (index + 1 until editor.blocks.size) else (index - 1 downTo 0)
-            val next = indices.firstOrNull { editor.blocks[it].type.isText }?.let { editor.blocks[it] }
-            if (next != null) editor.placeCaret(SelectionPoint(next.id, if (forward) 1 else next.value.text.length), deferFocus = true)
+            val next = indices.firstOrNull { editor.blocks[it].type.isText || editor.blocks[it].type==BlockType.IMAGE }?.let { editor.blocks[it] }
+            if (next != null) editor.placeCaret(SelectionPoint(next.id, if (forward) 1 else if(next.type.isText) next.value.text.length else 2), deferFocus = true)
         }
         return true
     }
@@ -85,7 +95,7 @@ internal class DocumentCursorNavigation(private val editor: EditorState) {
         if (!value.selection.collapsed) return false
         val point = SelectionPoint(key, value.selection.end.coerceIn(1, value.text.length))
         val preferred = column?.takeIf { expected == point && expectedText == value.text }
-        val step = vertical(point, down, preferred) ?: return false
+        val step = vertical(point, down, preferred,images=true) ?: return false
         source.value = source.value.copy(composition = null)
         editor.placeCaret(step.point, deferFocus = true)
         column = step.column
@@ -95,7 +105,7 @@ internal class DocumentCursorNavigation(private val editor: EditorState) {
     }
 
     /** Pure hit testing shared by caret navigation and document-wide keyboard selection. */
-    internal fun vertical(point: SelectionPoint, down: Boolean, preferredColumn: Float? = null): VerticalStep? {
+    internal fun vertical(point: SelectionPoint, down: Boolean, preferredColumn: Float? = null, images: Boolean = false): VerticalStep? {
         val key = point.key
         val source = editor.blocks.firstOrNull { it.id == key && it.type.isText } ?: return null
         val value = source.value
@@ -112,13 +122,14 @@ internal class DocumentCursorNavigation(private val editor: EditorState) {
         if (nextLine !in 0 until layout.lineCount) {
             val index = editor.blocks.indexOf(source)
             val indices = if (down) (index + 1 until editor.blocks.size) else (index - 1 downTo 0)
-            val adjacent = indices.firstOrNull { editor.blocks[it].type.isText }
+            val adjacent = indices.firstOrNull { editor.blocks[it].type.isText || images && editor.blocks[it].type==BlockType.IMAGE }
             if (adjacent == null) {
                 // Match ordinary text fields at the beginning/end of the document.
                 val end = if (down) value.text.length else 1
                 return VerticalStep(SelectionPoint(key, end), x)
             }
             target = editor.blocks[adjacent]
+            if(target.type==BlockType.IMAGE) return VerticalStep(SelectionPoint(target.id,if(down) 1 else 2),x)
             targetLayout = editor.layouts[target.id]?.takeIf { it.layoutInput.text.text == target.value.text }
                 ?: return null
             targetLine = if (down) 0 else targetLayout.lineCount - 1

@@ -15,6 +15,10 @@
     <uses-permission android:name="com.kongye.permission.VAULT" />
     <!-- 解锁密码空间对外读取时用指纹验证 -->
     <uses-permission android:name="android.permission.USE_BIOMETRIC" />
+    <!-- 3.3：关联 App 时读取它的签名证书，只在证书相同时推荐（防同包名仿冒 App）。自用，不上架商店 -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES"
+        xmlns:tools="http://schemas.android.com/tools"
+        tools:ignore="QueryAllPackagesPermission" />
 
     <!-- 密码空间：显示「已用于」的 App 名称、给条目选择适用的 App、看空叶键盘 / 悬浮球是否已安装 -->
     <queries>
@@ -85,6 +89,30 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|density|uiMode|locale|layoutDirection|fontScale" />
+
+        <!-- 系统自动填充服务（3.3）：在系统设置里选空叶文档后，登录 / 注册页弹出下拉框或键盘工具栏候选 -->
+        <service
+            android:name=".autofill.KongyeAutofillService"
+            android:exported="true"
+            android:label="空叶文档"
+            android:permission="android.permission.BIND_AUTOFILL_SERVICE">
+            <intent-filter>
+                <action android:name="android.service.autofill.AutofillService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.autofill"
+                android:resource="@xml/autofill_service" />
+        </service>
+
+        <!-- 自动填充弹出的界面：解锁后交出账号密码、更多密码、生成强密码、保存确认。透明、不进最近任务 -->
+        <activity
+            android:name=".autofill.AutofillActivity"
+            android:exported="false"
+            android:excludeFromRecents="true"
+            android:taskAffinity=""
+            android:windowSoftInputMode="adjustResize"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|density|uiMode|locale|layoutDirection|fontScale" />
 
