@@ -26,7 +26,6 @@ import androidx.core.view.inputmethod.EditorInfoCompat
 import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.ui.platform.PlatformTextInputInterceptor
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
-import com.kongye.docs.util.Share
 
 @Composable
 internal fun DocumentInput(editor: EditorState, content: @Composable () -> Unit) {
@@ -42,6 +41,17 @@ internal fun DocumentInput(editor: EditorState, content: @Composable () -> Unit)
         }
     }
     DisposableEffect(ime) { onDispose { ime.active=false } }
+    DisposableEffect(context,editor) {
+        val clipboard=context.getSystemService(ClipboardManager::class.java)
+        val listener=ClipboardManager.OnPrimaryClipChangedListener {
+            if(editor.selection.active) DocumentClipboard.rememberSelection(editor)
+            DocumentClipboard.onClipboardChanged(context)
+        }
+        clipboard.addPrimaryClipChangedListener(listener)
+        if(clipboard.primaryClipDescription?.let { it.hasMimeType("application/vnd.kongye.document-fragment") || it.hasMimeType("text/html") }==true)
+            DocumentClipboard.onClipboardChanged(context)
+        onDispose { clipboard.removePrimaryClipChangedListener(listener) }
+    }
     val interceptor=remember(editor,context,ime) {
         PlatformTextInputInterceptor { request,next ->
             next.startInputMethod(PlatformTextInputMethodRequest { info ->
@@ -51,6 +61,8 @@ internal fun DocumentInput(editor: EditorState, content: @Composable () -> Unit)
                 // incorrectly disable document commands for an entire IME session.
                 val documentInput = info.extras?.getInt("com.kongye.input.EDITOR_PROTOCOL") == 1
                 ime.active=documentInput
+                if(context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0)
+                    android.util.Log.d("KongyeIme","startInput document=$documentInput inputType=0x${Integer.toHexString(info.inputType)} imeOptions=0x${Integer.toHexString(info.imeOptions)}")
                 if (documentInput) {
                     val state=ime.snapshot()
                     info.initialSelStart=state.start; info.initialSelEnd=state.end
@@ -86,6 +98,10 @@ internal class DocumentInputConnection(target: InputConnection, private val cont
     private fun bodyInput() = documentInput && editor.bodyInputActive && !editor.titleFocused &&
         editor.focusedCell == null && editor.commentDraft == null && editor.commentView == null && !editor.findMode
     private val handler=Handler(Looper.getMainLooper())
+    /** Debug builds only: which calls a keyboard makes (lengths, never the text itself). */
+    private val tracing=context.applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+    private fun trace(message: () -> String) { if(tracing) android.util.Log.d("KongyeIme",message()) }
+    private fun shape(text: CharSequence?) = text?.let { t -> "len=${t.length}" + (if(t.isNotEmpty() && t.all { it=='\n' }) " newline" else "") } ?: "null"
     private fun nativeReady(): Boolean {
         if(ime?.nativeEpoch!=editor.inputEpoch || editor.selection.active || editor.focusedId!=blockId || editor.pendingFocus!=null) return false
         val value=editor.focused?.value ?: return false
@@ -110,19 +126,16 @@ internal class DocumentInputConnection(target: InputConnection, private val cont
         true
     }
     override fun performContextMenuAction(id: Int): Boolean {
+        trace { "performContextMenuAction $id" }
         if(id==android.R.id.selectAll && main { bodyInput() }) return selectBody()
         return main {
             if(!bodyInput()) return@main super.performContextMenuAction(id)
             val result=when {
                 id==android.R.id.undo && bodyInput() -> { editor.undo(); true }
                 id==android.R.id.redo && bodyInput() -> { editor.redo(); true }
-                id==android.R.id.copy && editor.selection.active -> { Share.copy(context,"文档",editor.selection.text()); editor.selection.clear(); true }
-                id==android.R.id.cut && editor.selection.active -> { Share.copy(context,"文档",editor.selection.text()); editor.selection.replace(""); true }
-                id==android.R.id.paste && editor.selection.active -> {
-                    val clip=context.getSystemService(ClipboardManager::class.java).primaryClip
-                    if(clip!=null) editor.selection.replace((0 until clip.itemCount).joinToString("\n") { clip.getItemAt(it).coerceToText(context).toString() })
-                    true
-                }
+                id==android.R.id.copy && editor.selection.active -> DocumentClipboard.copy(context,editor)
+                id==android.R.id.cut && editor.selection.active -> DocumentClipboard.copy(context,editor,cut=true)
+                id==android.R.id.paste -> DocumentClipboard.paste(context,editor)
                 else -> super.performContextMenuAction(id)
             }
             if(bodyInput()) ime?.notifyIme()
@@ -130,6 +143,7 @@ internal class DocumentInputConnection(target: InputConnection, private val cont
         }
     }
     override fun performPrivateCommand(action: String?, data: Bundle?): Boolean = main {
+        trace { "performPrivateCommand $action" }
         if (!bodyInput()) return@main super.performPrivateCommand(action,data)
         val result=when (action) {
             "com.kongye.input.UNDO" -> { ime?.finishComposition(); editor.undo(); true }
@@ -143,12 +157,31 @@ internal class DocumentInputConnection(target: InputConnection, private val cont
         result
     }
     override fun setSelection(start: Int,end: Int): Boolean = main {
+        trace { "setSelection $start $end" }
         if(bodyInput() && ime!=null) return@main ime.select(start,end).also { ime.notifyIme() }
         super.setSelection(start,end)
     }
+    override fun performEditorAction(editorAction: Int): Boolean {
+        trace { "performEditorAction $editorAction body=${main { bodyInput() }}" }
+        if(editorAction in listOf(android.view.inputmethod.EditorInfo.IME_ACTION_NONE,android.view.inputmethod.EditorInfo.IME_ACTION_UNSPECIFIED)) return main {
+            if(bodyInput() && ime!=null) ime.insert("\n",1,false).also { ime.notifyIme() }
+            else super.performEditorAction(editorAction)
+        }
+        return super.performEditorAction(editorAction)
+    }
     override fun sendKeyEvent(event: KeyEvent): Boolean {
+        trace { "sendKeyEvent action=${event.action} code=${event.keyCode} meta=${event.metaState} body=${main { bodyInput() }}" }
         if(!main { bodyInput() }) return super.sendKeyEvent(event)
-        if(main { editor.imageCaret!=null } && event.keyCode==KeyEvent.KEYCODE_ENTER) {
+        if(event.keyCode in listOf(KeyEvent.KEYCODE_DEL,KeyEvent.KEYCODE_FORWARD_DEL) && main { editor.imageCaret!=null }) {
+            if(event.action==KeyEvent.ACTION_DOWN) main {
+                ime?.delete(if(event.keyCode==KeyEvent.KEYCODE_DEL) 1 else 0,if(event.keyCode==KeyEvent.KEYCODE_FORWARD_DEL) 1 else 0,false)
+                ime?.notifyIme()
+            }
+            return true
+        }
+        // Finishing composition and Enter can arrive before the next UI frame.
+        // Apply Enter against the document rather than a stale paragraph callback.
+        if(event.keyCode==KeyEvent.KEYCODE_ENTER && !event.isCtrlPressed && !event.isAltPressed) {
             if(event.action==KeyEvent.ACTION_DOWN) main { ime?.insert("\n",1,false); ime?.notifyIme() }
             return true
         }
@@ -195,12 +228,13 @@ internal class DocumentInputConnection(target: InputConnection, private val cont
         return super.sendKeyEvent(event)
     }
     override fun getSelectedText(flags: Int): CharSequence? = main {
-        if(bodyInput() && editor.selection.active) editor.selection.text()
+        if(bodyInput() && editor.selection.active) { DocumentClipboard.rememberSelection(editor); editor.selection.text() }
         else if(bodyInput() && ime!=null) ime.snapshot().let { state ->
             if(state.start==state.end) null else state.text.substring(minOf(state.start,state.end),maxOf(state.start,state.end))
         } else super.getSelectedText(flags)
     }
     override fun deleteSurroundingText(beforeLength: Int,afterLength: Int): Boolean = main {
+        trace { "deleteSurroundingText $beforeLength $afterLength" }
         if(bodyInput() && ime!=null) return@main ime.delete(beforeLength,afterLength,false).also { ime.notifyIme() }
         super.deleteSurroundingText(beforeLength,afterLength)
     }
@@ -240,17 +274,24 @@ internal class DocumentInputConnection(target: InputConnection, private val cont
         SurroundingText(state.text.substring(from,to),state.start-from,state.end-from,from)
     }
     override fun commitText(text: CharSequence?,newCursorPosition: Int): Boolean = main {
-        if(bodyInput() && ime!=null) (if(nativeReady()) super.commitText(text,newCursorPosition) else ime.insert(text,newCursorPosition,false)).also { ime.notifyIme() }
+        trace { "commitText ${shape(text)} cursor=$newCursorPosition body=${bodyInput()} native=${bodyInput() && nativeReady()}" }
+        if(bodyInput() && ime!=null) (if(text!=null && text.isNotEmpty() && text!="\n" && DocumentClipboard.pasteCommitted(context,editor,text)) true else if(nativeReady()) super.commitText(text,newCursorPosition) else ime.insert(text,newCursorPosition,false)).also { ime.notifyIme() }
         else super.commitText(text,newCursorPosition)
     }
     override fun setComposingText(text: CharSequence?,newCursorPosition: Int): Boolean = main {
+        trace { "setComposingText ${shape(text)} cursor=$newCursorPosition body=${bodyInput()} native=${bodyInput() && nativeReady()}" }
         if(bodyInput() && ime!=null) (if(nativeReady()) super.setComposingText(text,newCursorPosition) else ime.insert(text,newCursorPosition,true)).also { ime.notifyIme() }
         else super.setComposingText(text,newCursorPosition)
     }
     override fun finishComposingText(): Boolean = main {
-        if(bodyInput() && ime!=null) ime.finishComposition().also { ime.notifyIme() } else super.finishComposingText()
+        trace { "finishComposingText" }
+        if(bodyInput() && ime!=null) {
+            if(nativeReady()) super.finishComposingText()
+            ime.finishComposition().also { ime.notifyIme() }
+        } else super.finishComposingText()
     }
     override fun setComposingRegion(start: Int,end: Int): Boolean = main {
+        trace { "setComposingRegion $start $end" }
         if(bodyInput() && ime!=null) ime.composingRegion(start,end).also { ime.notifyIme() } else super.setComposingRegion(start,end)
     }
     @androidx.annotation.RequiresApi(33)

@@ -276,8 +276,21 @@ class EditorState(val docId: String, val isNew: Boolean) {
 
     fun replaceArticleSelection(text: String) {
         checkpoint()
-        val retained=focused?.takeIf { it.type.isText && !text.contains('\n') && !text.contains('\r') }
+        val retained=focused?.takeIf { it.type.isText }
         clearArticleSelection()
+        if(retained!=null && (text.contains('\n') || text.contains('\r'))) {
+            val lines=text.replace("\r\n","\n").replace('\r','\n').split('\n')
+            val added=lines.mapIndexed { index,line ->
+                if(index==0) retained.apply { restore(Block(text=line),line.length+1) }
+                else BlockState(Block(text=line))
+            }
+            added.forEach { it.restoreClipboardChecklist() }
+            blocks.clear(); blocks.addAll(added)
+            focusedCell=null
+            requestFocus(added.last(),added.last().value.text.length)
+            invalidateImeCallbacks(); changed()
+            return
+        }
         if(retained!=null) {
             retained.value=TextFieldValue(ZWS+text,TextRange(1+text.length))
             retained.spans=emptyList(); retained.typing=null
@@ -929,6 +942,111 @@ class EditorState(val docId: String, val isNew: Boolean) {
 
     // ---------------- 块的插入与删除 ----------------
 
+    private fun clipboardInputTarget(): BlockState? {
+        pendingFocus?.let { pending ->
+            blocks.firstOrNull { it.id==pending.blockId && it.type.isText }?.let { b ->
+                focusedId=b.id
+                b.value=b.value.copy(selection=TextRange(pending.pos.coerceIn(1,b.value.text.length)))
+            }
+        }
+        return focused?.takeIf { it.type.isText }
+    }
+
+    internal fun pastePlain(text: String): Boolean {
+        if(selection.active) { selection.replace(text); invalidateImeCallbacks(); return true }
+        if(titleFocused) {
+            val start=title.selection.min
+            val clean=text.replace("\r","").replace("\n","")
+            onTitleChange(TextFieldValue(title.text.replaceRange(start,title.selection.max,clean),TextRange(start+clean.length)))
+            return true
+        }
+        if(imageCaret!=null) return insertAtImageCaret(text)
+        val b=clipboardInputTarget() ?: return false
+        val handoff=pendingFocus
+        val value=b.value
+        val insertion=text.replace("\r\n","\n").replace('\r','\n').replace(ZWS,"")
+        val start=value.selection.min.coerceAtLeast(1)
+        onValueChange(b,TextFieldValue(value.text.replaceRange(start,value.selection.max,insertion),TextRange(start+insertion.length)))
+        if(handoff!=null && pendingFocus==handoff) pendingFocus=handoff.copy(pos=b.value.selection.end)
+        invalidateImeCallbacks()
+        return true
+    }
+
+    /** Insert a structured clipboard fragment as one shared undo operation. */
+    internal fun pasteFragment(part: ClipboardFragment): Boolean {
+        if(part.blocks.isEmpty()) return false
+        if(titleFocused && !selection.active) return pastePlain(DocContent(part.blocks).plainText())
+        val range=selection.range
+        // Title edits retain the title's plain-text semantics.
+        if(range?.start?.key==TITLE_KEY) return pastePlain(DocContent(part.blocks).plainText())
+        var first: BlockState?=null
+        var last: BlockState?=null
+        var from=0; var to=0
+        val start: Int
+        val count: Int
+        if(selection.all) {
+            start=0; count=blocks.size
+        } else if(range!=null) {
+            start=blocks.indexOfFirst { it.id==range.start.key }
+            val end=blocks.indexOfFirst { it.id==range.end.key }
+            if(start<0 || end<start) return false
+            count=end-start+1
+            first=blocks[start].takeIf { it.type.isText }; last=blocks[end].takeIf { it.type.isText }
+            from=(range.start.offset-1).coerceAtLeast(0); to=(range.end.offset-1).coerceAtLeast(0)
+        } else if(imageCaret!=null) {
+            val point=imageCaret!!
+            val index=blocks.indexOfFirst { it.id==point.key }
+            if(index<0) return false
+            start=index+if(point.offset==1) 0 else 1; count=0
+        } else {
+            val b=clipboardInputTarget() ?: return false
+            start=blocks.indexOf(b); count=1; first=b; last=b
+            from=b.value.selection.min-1; to=b.value.selection.max-1
+        }
+        val prefix=first?.text?.take(from).orEmpty()
+        val suffix=last?.text?.drop(to).orEmpty()
+        val prefixStyles=first?.toBlock()?.let { sliceSpans(it.spans,0,from) }.orEmpty()
+        val suffixStyles=last?.toBlock()?.let { sliceSpans(it.spans,to,it.text.length) }.orEmpty()
+        val added=part.blocks.map { it.copy(id=com.kongye.docs.data.newId(),spans=it.spans.filterNot { s -> s.style==InlineStyle.COMMENT }) }.toMutableList()
+        if(added.first().type.isText) {
+            val pasted=added.first()
+            val format=if(first!=null && (prefix.isNotEmpty() || !part.wholeFirst)) first.toBlock() else pasted
+            added[0]=format.copy(id=pasted.id,text=prefix+pasted.text,spans=prefixStyles+pasted.spans.shifted(prefix.length))
+        } else if(prefix.isNotEmpty()) {
+            added.add(0,first!!.toBlock().copy(id=com.kongye.docs.data.newId(),text=prefix,spans=prefixStyles))
+        }
+        val caretIndex=added.lastIndex
+        val caretOffset=if(added.last().type.isText) added.last().text.length+1 else 2
+        if(suffix.isNotEmpty()) {
+            val tail=added.last()
+            if(tail.type.isText) added[added.lastIndex]=tail.copy(text=tail.text+suffix,spans=tail.spans+suffixStyles.shifted(tail.text.length))
+            else added+=last!!.toBlock().copy(id=com.kongye.docs.data.newId(),text=suffix,spans=suffixStyles)
+        }
+        checkpoint()
+        val retained=focused?.takeIf { it.type.isText && it in blocks.subList(start,start+count) }
+        clearArticleSelection(); insertionHandle=null; cancelCharSelect()
+        var reused=false
+        val states=added.mapIndexed { index,data ->
+            if(!reused && retained!=null && data.type.isText) {
+                reused=true
+                retained.apply { restore(data,if(index==caretIndex) caretOffset else 1) }
+            } else BlockState(data)
+        }.toMutableList()
+        repeat(count) { blocks.removeAt(start) }
+        blocks.addAll(start,states)
+        var target=states[caretIndex]
+        if(!target.type.isText && target.type!=BlockType.IMAGE) {
+            val tail=states.getOrNull(caretIndex+1)?.takeIf { it.type.isText } ?: BlockState(Block()).also { blocks.add(start+caretIndex+1,it) }
+            target=tail
+        }
+        val pos=if(target.type==BlockType.IMAGE) 2 else if(target===states[caretIndex]) caretOffset else 1
+        imageCaret=if(target.type==BlockType.IMAGE) SelectionPoint(target.id,2) else null
+        focusedId=target.id; focusedCell=null; titleFocused=false
+        requestFocus(target,if(target.type==BlockType.IMAGE) 1 else pos)
+        invalidateImeCallbacks(); changed()
+        return true
+    }
+
     internal fun insertAtImageCaret(text: String, composing: Boolean = false): Boolean {
         val point=imageCaret ?: return false
         val image=blocks.firstOrNull { it.id==point.key && it.type==BlockType.IMAGE } ?: return false
@@ -957,6 +1075,24 @@ class EditorState(val docId: String, val isNew: Boolean) {
     private fun insertAfter(anchor: BlockState, nb: BlockState) {
         blocks.add(blocks.indexOf(anchor) + 1, nb)
         requestFocus(nb, 1)
+    }
+
+    /** Delete an adjacent empty line at an image edge without deleting the image. */
+    internal fun deleteAtImageCaret(before: Int,after: Int): Boolean {
+        val point=imageCaret ?: return false
+        if(before==0 && after==0) return true
+        val index=blocks.indexOfFirst { it.id==point.key && it.type==BlockType.IMAGE }
+        if(index<0) return false
+        val at=if(point.offset==1) index-1 else index+1
+        val adjacent=blocks.getOrNull(at) ?: return true
+        if(adjacent.type.isText && adjacent.text.isEmpty()) {
+            checkpoint()
+            blocks.removeAt(at)
+            invalidateImeCallbacks()
+            requestFocus(blocks.first { it.id==point.key },1)
+            changed()
+        }
+        return true
     }
 
     /** 在光标所在块之后插入图片 / 表格 / 分割线；光标停在其后的空行 */

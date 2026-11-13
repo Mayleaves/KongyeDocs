@@ -219,9 +219,9 @@ internal fun BoxScope.SelectionActions(editor: EditorState) {
         val top=viewport.localToRoot(Offset.Zero).y
         val rect=Rect(minOf(start.first.x,end.first.x),maxOf(top,start.first.y-start.second),maxOf(start.first.x,end.first.x)+1f,minOf(top+viewport.size.height,end.first.y))
         toolbar.showMenu(rect,
-            onCopyRequested={ com.kongye.docs.util.Share.copy(context,"文档",selection.text()); selection.clear() },
-            onPasteRequested=if(clip.hasPrimaryClip()) ({ clip.primaryClip?.let { data -> selection.replace((0 until data.itemCount).joinToString("\n") { data.getItemAt(it).coerceToText(context).toString() }) } }) else null,
-            onCutRequested={ com.kongye.docs.util.Share.copy(context,"文档",selection.text()); selection.replace("") },
+            onCopyRequested={ DocumentClipboard.copy(context,editor) },
+            onPasteRequested=if(clip.hasPrimaryClip()) ({ DocumentClipboard.paste(context,editor) }) else null,
+            onCutRequested={ DocumentClipboard.copy(context,editor,cut=true) },
             onSelectAllRequested=if(!editor.articleSelected) ({ editor.selectArticle() }) else null,
         )
     }

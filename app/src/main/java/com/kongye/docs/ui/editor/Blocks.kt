@@ -57,10 +57,13 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalCursorBlinkEnabled
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -135,9 +138,33 @@ fun BlockView(
             Modifier.fillMaxWidth().height(30.dp).clickable { onDividerTap(b) },
             contentAlignment = Alignment.Center,
         ) { Box(Modifier.fillMaxWidth().height(1.dp).background(Kongye.Line2)) }
-        BlockType.IMAGE -> Box {
+        BlockType.IMAGE -> Box(Modifier.onGloballyPositioned { editor.selection.register(b.id,it) }) {
             ImageBlock(b) { onImageTap(b) }
-            ImageInsertionField(b,editor,Modifier.align(if(editor.imageCaret?.key==b.id && editor.imageCaret?.offset==2) Alignment.BottomStart else Alignment.TopStart))
+            // Android reveals the focused input's own bounds as well as our
+            // document caret. Anchor both at the same image edge so focusing
+            // the trailing edge cannot scroll a tall image back to its top.
+            val inputAlignment=if(editor.imageCaret?.let { it.key==b.id && it.offset==2 }==true) Alignment.BottomStart else Alignment.TopStart
+            ImageInsertionField(b,editor,Modifier.align(inputAlignment))
+            editor.imageCaret?.takeIf { it.key==b.id }?.let { point ->
+                val animateCursor=LocalCursorBlinkEnabled.current
+                val windowFocused=LocalWindowInfo.current.isWindowFocused
+                val blinkVisible=remember(point,editor.inputEpoch) { mutableStateOf(true) }
+                LaunchedEffect(point,editor.inputEpoch,animateCursor,windowFocused) {
+                    blinkVisible.value=true
+                    // Match BasicTextField: show immediately, then alternate
+                    // every 500 ms; suspend blinking while the window is inactive.
+                    if(animateCursor && windowFocused) while(true) {
+                        delay(500)
+                        blinkVisible.value=!blinkVisible.value
+                    }
+                }
+                Box(Modifier.matchParentSize().padding(vertical=6.dp).drawBehind {
+                    if(windowFocused && blinkVisible.value) {
+                        val x=if(point.offset==1) 1.dp.toPx() else size.width-1.dp.toPx()
+                        drawLine(Kongye.Primary,Offset(x,0f),Offset(x,size.height),2.dp.toPx())
+                    }
+                })
+            }
         }
         BlockType.TABLE -> TableBlock(b, editor)
         else -> TextBlock(b, index, editor)
@@ -439,27 +466,25 @@ private fun ImageBlock(b: BlockState, onTap: () -> Unit) {
     }
 }
 
-/** Only visible while editing this edge; moving here never creates a saved line. */
+/** Keep a stable input session; the image itself draws the single edge caret. */
 @Composable
 private fun ImageInsertionField(b: BlockState,editor: EditorState,modifier: Modifier) {
     val epoch=editor.inputEpoch
     val keepPanel=LocalKeepEditorPanel.current
-    val active=editor.imageCaret?.key==b.id
     DocumentBodyInput(b.id) {
         BasicTextField(
             value=androidx.compose.ui.text.input.TextFieldValue(ZWS,androidx.compose.ui.text.TextRange(1)),
             onValueChange={ if(epoch==editor.inputEpoch && editor.imageCaret?.key==b.id) editor.onValueChange(b,it) },
             textStyle=blockTextStyle(BlockType.TEXT),
-            cursorBrush=SolidColor(Kongye.Primary),
+            cursorBrush=SolidColor(Color.Transparent),
             keyboardOptions=KeyboardOptions.Default.copy(showKeyboardOnFocus=!keepPanel),
             onTextLayout={ editor.layouts[b.id]=it },
-            modifier=modifier.fillMaxWidth().height(if(active) 26.dp else 0.dp).focusRequester(b.focus)
+            modifier=modifier.fillMaxWidth().height(1.dp).graphicsLayer { alpha=0f }.focusRequester(b.focus)
                 .onFocusChanged { focus -> if(focus.isFocused) {
                     if(editor.imageCaret?.key!=b.id) editor.imageCaret=SelectionPoint(b.id,1)
                     editor.focusedId=b.id; editor.focusedCell=null; editor.titleFocused=false
                 } }
-                .documentCursorKeys(editor).documentTextMenu(editor)
-                .onGloballyPositioned { editor.selection.register(b.id,it) },
+                .documentCursorKeys(editor).documentTextMenu(editor),
         )
     }
 }

@@ -267,10 +267,15 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
     // Keep the moving selection handle above the keyboard without transferring focus.
     LaunchedEffect(editor.keyboardSelection.endpoint) {
         val point = editor.keyboardSelection.endpoint ?: return@LaunchedEffect
+        // Let the image input move to its leading/trailing edge before scrolling.
+        withFrameNanos { }
         val viewport = editor.selection.viewport?.takeIf { it.isAttached } ?: return@LaunchedEffect
         val coordinates = editor.selection.coordinates[point.key]?.takeIf { it.isAttached } ?: return@LaunchedEffect
         val layout = editor.layouts[point.key] ?: return@LaunchedEffect
-        val rect = layout.getCursorRect(point.offset.coerceIn(1, layout.layoutInput.text.length))
+        val rect = if(editor.blocks.any { it.id==point.key && it.type==BlockType.IMAGE }) {
+            val top=if(point.offset==1) 0f else (coordinates.size.height-28f).coerceAtLeast(0f)
+            androidx.compose.ui.geometry.Rect(0f,top,2f,top+28f)
+        } else layout.getCursorRect(point.offset.coerceIn(1, layout.layoutInput.text.length))
         val local = coordinates.localToRoot(androidx.compose.ui.geometry.Offset(0f,rect.top)).y -
             viewport.localToRoot(androidx.compose.ui.geometry.Offset.Zero).y
         val margin = 24f

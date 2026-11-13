@@ -97,7 +97,7 @@ object ImageParagraphRegression {
         try {
             main { activity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON) }
             Thread.sleep(1500)
-            val imageName="edge-image.png"
+            val imageName="${newId()}.png"
             val bitmap=Bitmap.createBitmap(160,90,Bitmap.Config.ARGB_8888).apply { eraseColor(Color.rgb(120,180,110)) }
             File(Repository.imagesDir,imageName).outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG,100,it) }; bitmap.recycle()
             open("图片前光标检查",listOf(Block(text="图片前段落"),Block(type=BlockType.IMAGE,image=imageName,imageRatio=16f/9f),Block(text="图片后段落")))
@@ -147,6 +147,32 @@ object ImageParagraphRegression {
                 main { check(e().blocks.last().text=="图片后说明") }
             }
             pass("last-image-end-accepts-text-with-shared-undo-redo-without-closing-keyboard")
+            open("长图滚动检查",listOf(Block(text="长图前正文"),Block(type=BlockType.IMAGE,image=imageName,imageRatio=.4f),Block(text="长图下一行正文")))
+            fun edgeVisible(before: Boolean)=main {
+                val image=e().blocks.first { it.type==BlockType.IMAGE }
+                val coordinates=e().selection.coordinates[image.id]!!
+                val viewport=e().selection.viewport!!
+                val imageTop=coordinates.localToRoot(Offset.Zero).y
+                val viewportTop=viewport.localToRoot(Offset.Zero).y
+                val y=if(before) imageTop else imageTop+coordinates.size.height
+                check(coordinates.size.height>viewport.size.height) { "Fixture image should exceed visible viewport" }
+                check(y in viewportTop-2f..viewportTop+viewport.size.height+2f) {
+                    "Image ${if(before) "top" else "bottom"}=$y outside viewport $viewportTop..${viewportTop+viewport.size.height}"
+                }
+            }
+            focus(2,1); Thread.sleep(650)
+            watch("up from line below tall image",true) { arrow(KeyEvent.KEYCODE_DPAD_UP); Thread.sleep(650) }
+            edgeVisible(false)
+            pass("up-from-next-line-to-tall-image-right-edge-keeps-image-bottom-visible")
+            watch("tall image top then bottom",true) {
+                arrow(KeyEvent.KEYCODE_DPAD_UP); Thread.sleep(650); edgeVisible(true)
+                arrow(KeyEvent.KEYCODE_DPAD_DOWN); Thread.sleep(650); edgeVisible(false)
+            }
+            pass("switching-tall-image-front-back-reveals-the-corresponding-image-edge")
+            focus(2,1); Thread.sleep(650)
+            watch("left from next line to tall image",true) { arrow(KeyEvent.KEYCODE_DPAD_LEFT); Thread.sleep(650) }
+            edgeVisible(false)
+            pass("left-from-next-line-to-tall-image-right-edge-keeps-image-bottom-visible")
             open("连续设置序号检查",listOf(Block(text="第一行序号内容"),Block(text="第二行序号内容"),Block(text="第三行序号内容")))
             val density=context.resources.displayMetrics.density
             fun toolPoint(index: Int)=main { val viewport=e().selection.viewport!!; val origin=viewport.localToRoot(Offset.Zero); Offset((26+44*index)*density,origin.y+viewport.size.height+24*density) }

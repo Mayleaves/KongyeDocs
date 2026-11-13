@@ -61,11 +61,13 @@ internal class DocumentIme(private val editor: EditorState, private val view: Vi
         val range = editor.selection.range
         val direction = directed?.takeIf { (a,b) -> range != null &&
             setOf(a,b) == setOf(range.start,range.end) }
-        val focused = editor.focused
+        val pending=editor.pendingFocus
+        val focused = pending?.let { p -> editor.blocks.firstOrNull { it.id==p.blockId } } ?: editor.focused
+        val pendingPosition=pending?.takeIf { it.blockId==focused?.id && focused.type.isText }?.pos
         val start = if(editor.imageCaret!=null && range==null) offset(editor.imageCaret!!) else if (range != null) offset(direction?.first ?: range.start)
-            else focused?.let { offset(SelectionPoint(it.id,it.value.selection.start)) } ?: 0
+            else focused?.let { offset(SelectionPoint(it.id,pendingPosition ?: it.value.selection.start)) } ?: 0
         val end = if(editor.imageCaret!=null && range==null) start else if (range != null) offset(direction?.second ?: range.end)
-            else focused?.let { offset(SelectionPoint(it.id,it.value.selection.end)) } ?: start
+            else focused?.let { offset(SelectionPoint(it.id,pendingPosition ?: it.value.selection.end)) } ?: start
         val composition = focused?.value?.composition?.takeIf { range == null }
         return Snapshot(text.toString(),entries,start,end,
             composition?.let { offset(SelectionPoint(focused.id,it.min)) } ?: -1,
@@ -81,8 +83,9 @@ internal class DocumentIme(private val editor: EditorState, private val view: Vi
     }
 
     fun finishComposition(): Boolean {
-        editor.blocks.filter { it.type.isText && it.value.composition != null }.forEach { it.value = it.value.copy(composition = null) }
-        editor.invalidateImeCallbacks()
+        val composing=editor.blocks.filter { it.type.isText && it.value.composition != null }
+        composing.forEach { it.value = it.value.copy(composition = null) }
+        if(composing.isNotEmpty()) editor.invalidateImeCallbacks()
         return true
     }
 
@@ -123,6 +126,14 @@ internal class DocumentIme(private val editor: EditorState, private val view: Vi
     }
 
     fun insert(text: CharSequence?, cursor: Int, composing: Boolean): Boolean {
+        // The next key can arrive before the newly split paragraph is composed.
+        val handoff=editor.pendingFocus
+        handoff?.let { pending ->
+            editor.blocks.firstOrNull { it.id==pending.blockId && it.type.isText }?.let { target ->
+                editor.focusedId=target.id
+                target.value=target.value.copy(selection=TextRange(pending.pos.coerceIn(1,target.value.text.length)))
+            }
+        }
         val insertion = text?.toString().orEmpty().replace(ZWS,"")
         directed = null
         if(editor.imageCaret!=null) return editor.insertAtImageCaret(insertion,composing)
@@ -144,6 +155,11 @@ internal class DocumentIme(private val editor: EditorState, private val view: Vi
             val composition = if (composing && insertion.isNotEmpty()) TextRange(from,from + insertion.length) else null
             editor.onValueChange(block,TextFieldValue(next,TextRange(caret),composition))
         }
+        if(handoff!=null && editor.pendingFocus==handoff) {
+            editor.focused?.takeIf { it.id==handoff.blockId && it.type.isText }?.let { target ->
+                editor.pendingFocus=handoff.copy(pos=target.value.selection.end)
+            }
+        }
         editor.invalidateImeCallbacks()
         return true
     }
@@ -161,6 +177,7 @@ internal class DocumentIme(private val editor: EditorState, private val view: Vi
 
     fun delete(before: Int, after: Int, codePoints: Boolean): Boolean {
         if (before < 0 || after < 0) return false
+        editor.imageCaret?.let { return editor.deleteAtImageCaret(before,after) }
         if (editor.selection.active) { editor.selection.replace(""); editor.invalidateImeCallbacks(); return true }
         val state = snapshot()
         val low = minOf(state.start,state.end); val high = maxOf(state.start,state.end)
