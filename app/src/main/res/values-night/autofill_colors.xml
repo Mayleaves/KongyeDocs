@@ -1,0 +1,6 @@
+<resources>
+    <color name="autofill_surface">#242629</color>
+    <color name="autofill_text">#F0F1F2</color>
+    <color name="autofill_secondary">#A8ABB0</color>
+    <color name="autofill_line">#3B3D40</color>
+</resources>

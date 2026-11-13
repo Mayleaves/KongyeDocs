@@ -27,6 +27,7 @@ class RegressionInstrumentation : Instrumentation() {
     private var onlyV223=false
     private var onlyV224=false
     private var onlyV225=false
+    private var onlyManualPassword=false
     private var onlyV300Data=false
     private var onlyV300=false
     private var onlyV33=false
@@ -42,7 +43,7 @@ class RegressionInstrumentation : Instrumentation() {
     private var onlyCursorHandles=false
     private var probeArgs: Bundle?=null
     private var editor34Args: Bundle?=null
-    override fun onCreate(arguments: Bundle?) { if(arguments?.getString("only")=="editor34") editor34Args=arguments; if(arguments?.getString("only")=="ime-probe") probeArgs=arguments; onlyImageParagraph=arguments?.getString("only")=="image-paragraph"; universalIme=arguments?.getString("only")?.takeIf { it in listOf("universal-ime","universal-actual","ime-typing") }; keyboardProtocol=arguments?.getString("only")?.takeIf { it in listOf("keyboard-protocol","keyboard-actual") }; onlyKongyeClipboard=arguments?.getString("only")=="kongye-clipboard"; onlySelectionClipboard=arguments?.getString("only")=="selection-clipboard"; onlyActualIme=arguments?.getString("only")=="actual-ime"; onlyCursorHandles=arguments?.getString("only")=="cursor-handles"; onlyCursor=arguments?.getString("only")=="cursor"; onlyV226=arguments?.getString("only")=="v226"; onlyV300Data=arguments?.getString("only")=="v3-data"; onlyV300=arguments?.getString("only")=="v3" || onlyV300Data; onlyV33=arguments?.getString("only")=="v33"; onlyV33Ui=arguments?.getString("only")=="v33-ui"; onlyV225=arguments?.getString("only")=="v225"; onlyV224=arguments?.getString("only")=="v224"; onlyV223=arguments?.getString("only")=="v223"; onlyToolbarCustomize=arguments?.getString("only")=="toolbar-customize"; onlyCommentHandoff=arguments?.getString("only")=="comment-handoff"; onlyV217=arguments?.getString("only")=="v217"; onlyDock=arguments?.getString("only")=="dock"; onlyV215=arguments?.getString("only")=="v215"; onlyV214=arguments?.getString("only")=="v214"; onlyV213=arguments?.getString("only")=="v213"; onlyCats=arguments?.getString("only")=="cats"; editorModels=arguments?.getString("only")=="editor-models"; if(arguments?.getString("only")=="verify-backups") verifyPaths=arguments.getString("before")!! to arguments.getString("after")!!; manualKeyboard=arguments?.getString("only")=="keyboard"; onlyUi=arguments?.getString("only")=="ui"; onlyEditor=arguments?.getString("only")=="editor"; super.onCreate(arguments); start() }
+    override fun onCreate(arguments: Bundle?) { onlyManualPassword=arguments?.getString("only")=="manual-password"; if(arguments?.getString("only")=="editor34") editor34Args=arguments; if(arguments?.getString("only")=="ime-probe") probeArgs=arguments; onlyImageParagraph=arguments?.getString("only")=="image-paragraph"; universalIme=arguments?.getString("only")?.takeIf { it in listOf("universal-ime","universal-actual","ime-typing") }; keyboardProtocol=arguments?.getString("only")?.takeIf { it in listOf("keyboard-protocol","keyboard-actual") }; onlyKongyeClipboard=arguments?.getString("only")=="kongye-clipboard"; onlySelectionClipboard=arguments?.getString("only")=="selection-clipboard"; onlyActualIme=arguments?.getString("only")=="actual-ime"; onlyCursorHandles=arguments?.getString("only")=="cursor-handles"; onlyCursor=arguments?.getString("only")=="cursor"; onlyV226=arguments?.getString("only")=="v226"; onlyV300Data=arguments?.getString("only")=="v3-data"; onlyV300=arguments?.getString("only")=="v3" || onlyV300Data; onlyV33=arguments?.getString("only")=="v33"; onlyV33Ui=arguments?.getString("only")=="v33-ui"; onlyV225=arguments?.getString("only")=="v225"; onlyV224=arguments?.getString("only")=="v224"; onlyV223=arguments?.getString("only")=="v223"; onlyToolbarCustomize=arguments?.getString("only")=="toolbar-customize"; onlyCommentHandoff=arguments?.getString("only")=="comment-handoff"; onlyV217=arguments?.getString("only")=="v217"; onlyDock=arguments?.getString("only")=="dock"; onlyV215=arguments?.getString("only")=="v215"; onlyV214=arguments?.getString("only")=="v214"; onlyV213=arguments?.getString("only")=="v213"; onlyCats=arguments?.getString("only")=="cats"; editorModels=arguments?.getString("only")=="editor-models"; if(arguments?.getString("only")=="verify-backups") verifyPaths=arguments.getString("before")!! to arguments.getString("after")!!; manualKeyboard=arguments?.getString("only")=="keyboard"; onlyUi=arguments?.getString("only")=="ui"; onlyEditor=arguments?.getString("only")=="editor"; super.onCreate(arguments); start() }
     private fun report(code: Int,bundle: Bundle) {
         File(targetContext.cacheDir,"regression-progress.txt").appendText(bundle.getString("stream").orEmpty())
         sendStatus(code,bundle)
@@ -53,6 +54,11 @@ class RegressionInstrumentation : Instrumentation() {
         runOnMainSync { }
         var passed = 0
         try {
+            if (onlyManualPassword) {
+                ManualPasswordRegression.run(this)
+                finish(Activity.RESULT_OK, Bundle().apply { putString("stream", "MANUAL PASSWORD AND KEYBOARD UI TESTS PASSED\n") })
+                return
+            }
             verifyPaths?.let { (before,after) ->
                 val valid=Regex("^/sdcard/空叶文档备份-[0-9]{8}-[0-9]{6}\\.json$")
                 check(valid.matches(before) && valid.matches(after))

@@ -112,8 +112,8 @@
             android:exported="false"
             android:excludeFromRecents="true"
             android:taskAffinity=""
-            android:windowSoftInputMode="adjustResize"
-            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:windowSoftInputMode="stateUnchanged|adjustResize"
+            android:theme="@style/Theme.Kongye.Autofill"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|density|uiMode|locale|layoutDirection|fontScale" />
 
         <service android:name=".data.BackupJobService" android:permission="android.permission.BIND_JOB_SERVICE" android:exported="true" />

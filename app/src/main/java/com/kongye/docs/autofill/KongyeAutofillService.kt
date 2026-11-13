@@ -32,6 +32,7 @@ import com.kongye.docs.data.VaultStore
 import com.kongye.docs.vault.AppCerts
 import com.kongye.docs.vault.Browsers
 import com.kongye.docs.vault.PasswordRules
+import com.kongye.docs.vault.lengthHint
 import com.kongye.docs.vault.VaultApi
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -76,7 +77,7 @@ class KongyeAutofillService : AutofillService() {
         // 注册 / 改密码：生成强密码，填进新密码框和确认框
         if (newPassword != null) {
             val rules = page.rules()
-            val summary = PasswordRules.generate(rules).summary
+            val summary = rules.lengthHint() + " · 可调整长度和字符"
             val ids = listOfNotNull(newPassword.id, confirm?.id)
             val intent = authIntent(AutofillActivity.MODE_GENERATE, target) {
                 putExtra(AutofillActivity.EXTRA_NEW_ID, newPassword.id)
@@ -84,7 +85,7 @@ class KongyeAutofillService : AutofillService() {
                 putExtra(AutofillActivity.EXTRA_RULES, rules.toBundle())
                 putExtra(AutofillActivity.EXTRA_RULES_STATED, rules.stated)
             }
-            builder.addDataset(dataset(ids, "生成强密码", summary, "+", intent, inline))
+            builder.addDataset(dataset(ids, "生成强密码", summary, "+", intent, inline, page.pkg))
             datasets++
         }
 
@@ -101,14 +102,14 @@ class KongyeAutofillService : AutofillService() {
                     account?.let { putExtra(AutofillActivity.EXTRA_ACCOUNT_ID, it.id) }
                     login?.let { putExtra(AutofillActivity.EXTRA_PASSWORD_ID, it.id) }
                 }
-                builder.addDataset(dataset(loginIds, title, "${e.name} · ********", e.name.trim().take(1).ifEmpty { "#" }, intent, inline))
+                builder.addDataset(dataset(loginIds, title, "${e.name} · ********", e.name.trim().take(1).ifEmpty { "#" }, intent, inline, page.pkg))
                 datasets++
             }
             val more = authIntent(AutofillActivity.MODE_MORE, target) {
                 account?.let { putExtra(AutofillActivity.EXTRA_ACCOUNT_ID, it.id) }
                 login?.let { putExtra(AutofillActivity.EXTRA_PASSWORD_ID, it.id) }
             }
-            builder.addDataset(dataset(loginIds, "更多密码", "搜索空叶文档的密码空间", "⋯", more, inline))
+            builder.addDataset(dataset(loginIds, "更多密码", "搜索空叶文档的密码空间", "⋯", more, inline, page.pkg))
             datasets++
         }
 
@@ -142,17 +143,30 @@ class KongyeAutofillService : AutofillService() {
     }
 
     /** 下拉框里的一行：头像（首字）、标题、副标题 */
-    private fun presentation(title: String, subtitle: String, avatar: String) = RemoteViews(packageName, R.layout.autofill_item).apply {
+    private fun presentation(title: String, subtitle: String, avatar: String, targetPackage: String) = RemoteViews(packageName, R.layout.autofill_item).apply {
         setTextViewText(R.id.autofill_avatar, avatar)
         setTextViewText(R.id.autofill_title, title)
         setTextViewText(R.id.autofill_subtitle, subtitle)
+        if (title != "更多密码" && title != "生成强密码") runCatching {
+            val info = packageManager.getApplicationInfo(targetPackage, 0)
+            if (info.icon != 0) {
+                setImageViewIcon(R.id.autofill_app_icon, Icon.createWithResource(targetPackage, info.icon))
+                setViewVisibility(R.id.autofill_app_icon, android.view.View.VISIBLE)
+                setViewVisibility(R.id.autofill_avatar, android.view.View.GONE)
+            }
+        }
+        if (title == "更多密码") {
+            setViewVisibility(R.id.autofill_avatar, android.view.View.GONE)
+            setViewVisibility(R.id.autofill_subtitle, android.view.View.GONE)
+            setViewVisibility(R.id.autofill_divider, android.view.View.GONE)
+        }
         setContentDescription(R.id.autofill_root, "$title $subtitle")
     }
 
     @Suppress("DEPRECATION")
     @SuppressLint("NewApi")
-    private fun dataset(ids: List<AutofillId>, title: String, subtitle: String, avatar: String, auth: IntentSender, inline: InlineSlots?): Dataset {
-        val view = presentation(title, subtitle, avatar)
+    private fun dataset(ids: List<AutofillId>, title: String, subtitle: String, avatar: String, auth: IntentSender, inline: InlineSlots?, targetPackage: String): Dataset {
+        val view = presentation(title, subtitle, avatar, targetPackage)
         val b = Dataset.Builder(view)
         val chip = inline?.next(title, subtitle)
         for (id in ids) {

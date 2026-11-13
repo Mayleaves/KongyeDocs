@@ -202,3 +202,5 @@ adb -s DEVICE_SERIAL shell am instrument -w -e only toolbar-customize com.kongye
 
 
 三软件密码联动的开启方式、日常操作和手机测试清单见[联动使用说明](docs/三软件联动使用与手机测试.md)。
+
+自动填充候选样式与可选密码生成器（3.4.3）见[使用说明](docs/自动填充列表与密码生成器.md)。
