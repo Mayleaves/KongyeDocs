@@ -16,8 +16,8 @@ android {
         applicationId = "com.kongye.docs"
         minSdk = 26
         targetSdk = 36
-        versionCode = if (updateFixture) providers.gradleProperty("fixtureCode").get().toInt() else 51
-        versionName = if (updateFixture) providers.gradleProperty("fixtureVersion").get() else "3.4.3"
+        versionCode = if (updateFixture) providers.gradleProperty("fixtureCode").get().toInt() else 57
+        versionName = if (updateFixture) providers.gradleProperty("fixtureVersion").get() else "3.5.5"
         testInstrumentationRunner = "com.kongye.docs.RegressionInstrumentation"
         manifestPlaceholders["appLabel"] = "空叶文档"
     }
@@ -45,6 +45,15 @@ android {
         compose = true
     }
 }
+
+val releaseHistoryAssets=layout.buildDirectory.dir("generated/release-history-assets")
+val generateReleaseHistory=tasks.register<Copy>("generateReleaseHistory") {
+    from(rootProject.file("CHANGELOG.md"))
+    into(releaseHistoryAssets)
+    rename("CHANGELOG.md","release-history.md")
+}
+android.sourceSets.getByName("main").assets.srcDir(releaseHistoryAssets.get().asFile)
+tasks.named("preBuild") { dependsOn(generateReleaseHistory) }
 
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2026.09.00")

@@ -17,6 +17,7 @@ import android.service.autofill.InlinePresentation
 import android.service.autofill.SaveCallback
 import android.service.autofill.SaveInfo
 import android.service.autofill.SaveRequest
+import android.view.View
 import android.view.autofill.AutofillId
 import android.widget.RemoteViews
 import android.widget.inline.InlinePresentationSpec
@@ -39,7 +40,7 @@ import java.util.concurrent.atomic.AtomicInteger
 /**
  * 系统自动填充服务（需求文档 v2 第 9.1 节）：
  * - 登录页：输入框下的下拉框（安卓 11 起也能显示在键盘工具栏）列出匹配的账号，最后一行「更多密码」；
- * - 注册 / 改密码页：新密码框下「生成强密码 · 要求摘要」；
+ * - 注册 / 改密码页：新密码框下「生成随机密码 · 要求摘要」；
  * - 提交后：系统弹出保存提示，确认页里可以改名称、取消勾选字段。
  * 每一条都要先解锁（AutofillActivity）才把账号密码交给系统；这里只放打码后的账号。
  */
@@ -63,6 +64,7 @@ class KongyeAutofillService : AutofillService() {
         val browser = Browsers.isBrowser(this, page.pkg)
         val app = if (browser) "" else page.pkg
         val domain = page.domain
+        VaultApi.observeAutofillTarget(page.pkg,domain)
         val account = page.account
         val login = page.loginPassword
         val newPassword = page.newPassword
@@ -71,13 +73,13 @@ class KongyeAutofillService : AutofillService() {
 
         val target = Target(page.pkg, app, domain, label = domain.ifEmpty { VaultApi.appLabel(this, page.pkg) ?: page.pkg })
         val builder = FillResponse.Builder()
-        val inline = if (Build.VERSION.SDK_INT >= 30) InlineSlots(request) else null
+        val keyboardOnly=keyboardCandidatesOnly(android.provider.Settings.Secure.getString(contentResolver,android.provider.Settings.Secure.DEFAULT_INPUT_METHOD).orEmpty())
+        val inline = if (keyboardOnly && Build.VERSION.SDK_INT >= 30) InlineSlots(request) else null
         var datasets = 0
 
-        // 注册 / 改密码：生成强密码，填进新密码框和确认框
+        // 注册 / 改密码：生成随机密码，填进新密码框和确认框
         if (newPassword != null) {
             val rules = page.rules()
-            val summary = rules.lengthHint() + " · 可调整长度和字符"
             val ids = listOfNotNull(newPassword.id, confirm?.id)
             val intent = authIntent(AutofillActivity.MODE_GENERATE, target) {
                 putExtra(AutofillActivity.EXTRA_NEW_ID, newPassword.id)
@@ -85,8 +87,7 @@ class KongyeAutofillService : AutofillService() {
                 putExtra(AutofillActivity.EXTRA_RULES, rules.toBundle())
                 putExtra(AutofillActivity.EXTRA_RULES_STATED, rules.stated)
             }
-            builder.addDataset(dataset(ids, "生成强密码", summary, "+", intent, inline, page.pkg))
-            datasets++
+            dataset(ids, "生成随机密码", "", "+", intent, inline, page.pkg, dropdown=!keyboardOnly)?.let { builder.addDataset(it);datasets++ }
         }
 
         // 登录：匹配的账号，最后是「更多密码」
@@ -102,15 +103,13 @@ class KongyeAutofillService : AutofillService() {
                     account?.let { putExtra(AutofillActivity.EXTRA_ACCOUNT_ID, it.id) }
                     login?.let { putExtra(AutofillActivity.EXTRA_PASSWORD_ID, it.id) }
                 }
-                builder.addDataset(dataset(loginIds, title, "${e.name} · ********", e.name.trim().take(1).ifEmpty { "#" }, intent, inline, page.pkg))
-                datasets++
+                dataset(loginIds, title, "${e.name} · ********", e.name.trim().take(1).ifEmpty { "#" }, intent, inline, page.pkg,dropdown=!keyboardOnly)?.let { builder.addDataset(it);datasets++ }
             }
             val more = authIntent(AutofillActivity.MODE_MORE, target) {
                 account?.let { putExtra(AutofillActivity.EXTRA_ACCOUNT_ID, it.id) }
                 login?.let { putExtra(AutofillActivity.EXTRA_PASSWORD_ID, it.id) }
             }
-            builder.addDataset(dataset(loginIds, "更多密码", "搜索空叶文档的密码空间", "⋯", more, inline, page.pkg))
-            datasets++
+            dataset(loginIds, "更多密码", "", "⋯", more, inline, page.pkg, sectionDivider=matches.isNotEmpty(),dropdown=!keyboardOnly)?.let { builder.addDataset(it);datasets++ }
         }
 
         // 保存：提交后系统交来所有字段
@@ -143,11 +142,11 @@ class KongyeAutofillService : AutofillService() {
     }
 
     /** 下拉框里的一行：头像（首字）、标题、副标题 */
-    private fun presentation(title: String, subtitle: String, avatar: String, targetPackage: String) = RemoteViews(packageName, R.layout.autofill_item).apply {
+    private fun presentation(title: String, subtitle: String, avatar: String, targetPackage: String, sectionDivider: Boolean) = RemoteViews(packageName, R.layout.autofill_item).apply {
         setTextViewText(R.id.autofill_avatar, avatar)
         setTextViewText(R.id.autofill_title, title)
         setTextViewText(R.id.autofill_subtitle, subtitle)
-        if (title != "更多密码" && title != "生成强密码") runCatching {
+        if (title != "更多密码" && title != "生成随机密码") runCatching {
             val info = packageManager.getApplicationInfo(targetPackage, 0)
             if (info.icon != 0) {
                 setImageViewIcon(R.id.autofill_app_icon, Icon.createWithResource(targetPackage, info.icon))
@@ -155,25 +154,43 @@ class KongyeAutofillService : AutofillService() {
                 setViewVisibility(R.id.autofill_avatar, android.view.View.GONE)
             }
         }
+        if (subtitle.isBlank()) setViewVisibility(R.id.autofill_subtitle, View.GONE)
+        if (title == "生成随机密码") setViewVisibility(R.id.autofill_divider, View.GONE)
         if (title == "更多密码") {
             setViewVisibility(R.id.autofill_avatar, android.view.View.GONE)
             setViewVisibility(R.id.autofill_subtitle, android.view.View.GONE)
             setViewVisibility(R.id.autofill_divider, android.view.View.GONE)
+            setViewVisibility(R.id.autofill_section_divider, if(sectionDivider) android.view.View.VISIBLE else android.view.View.GONE)
         }
         setContentDescription(R.id.autofill_root, "$title $subtitle")
     }
 
     @Suppress("DEPRECATION")
     @SuppressLint("NewApi")
-    private fun dataset(ids: List<AutofillId>, title: String, subtitle: String, avatar: String, auth: IntentSender, inline: InlineSlots?, targetPackage: String): Dataset {
-        val view = presentation(title, subtitle, avatar, targetPackage)
-        val b = Dataset.Builder(view)
-        val chip = inline?.next(title, subtitle)
-        for (id in ids) {
-            if (chip != null && Build.VERSION.SDK_INT >= 30) b.setValue(id, null, view, chip) else b.setValue(id, null, view)
-        }
-        b.setAuthentication(auth)
-        return b.build()
+    internal fun keyboardCandidatesOnly(methodId: String): Boolean =
+        android.content.ComponentName.unflattenFromString(methodId)?.packageName in setOf("com.kongye.keyboard","com.kongye.keyboard.debug")
+
+    private fun dataset(ids: List<AutofillId>, title: String, subtitle: String, avatar: String, auth: IntentSender, inline: InlineSlots?, targetPackage: String, sectionDivider: Boolean=false,dropdown: Boolean=false): Dataset? {
+        if(dropdown) return menuDataset(ids,presentation(title,subtitle,avatar,targetPackage,sectionDivider),auth)
+        if(Build.VERSION.SDK_INT<30) return null
+        val chip=inline?.next(title,subtitle) ?: return null
+        return inlineDataset(ids,chip,auth)
+    }
+
+    @Suppress("DEPRECATION")
+    internal fun menuDataset(ids: List<AutofillId>,view: RemoteViews,auth: IntentSender): Dataset {
+        val builder=Dataset.Builder(view)
+        ids.forEach { builder.setValue(it,null) }
+        builder.setAuthentication(auth)
+        return builder.build()
+    }
+
+    @androidx.annotation.RequiresApi(30)
+    internal fun inlineDataset(ids: List<AutofillId>,chip: InlinePresentation,auth: IntentSender): Dataset {
+        val builder=Dataset.Builder().setInlinePresentation(chip)
+        ids.forEach { builder.setValue(it,null) }
+        builder.setAuthentication(auth)
+        return builder.build()
     }
 
     private data class Target(val pkg: String, val app: String, val domain: String, val label: String)
@@ -208,9 +225,10 @@ class KongyeAutofillService : AutofillService() {
                 this@KongyeAutofillService, 0x4000, Intent(this@KongyeAutofillService, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
             )
             val content = InlineSuggestionUi.newContentBuilder(attribution)
-                .setTitle(title).setSubtitle(subtitle)
+                .setTitle(title)
+                .apply {if(subtitle.isNotBlank())setSubtitle(subtitle)}
                 .setStartIcon(Icon.createWithResource(this@KongyeAutofillService, R.drawable.ic_autofill_key))
-                .setContentDescription("$title $subtitle")
+                .setContentDescription(listOf(title,subtitle).filter {it.isNotBlank()}.joinToString(" "))
                 .build()
             used++
             return InlinePresentation(content.slice, spec, false)

@@ -87,6 +87,47 @@ object Editor34Regression {
                 check(e().blocks.map { it.text }==listOf("组字测试中文",""))
             }; settle()
             pass("finishing-chinese-composition-before-enter-keeps-characters")
+            for(kind in listOf("keyevent","commitText","editorAction")) {
+                open(listOf(Block(text="图前"),Block(type=BlockType.IMAGE,image="preserved.png"),Block(text="后文")))
+                val picture=main { e().blocks[1].id }
+                main { e().placeCaret(SelectionPoint(picture,2),deferFocus=true) }; settle()
+                watch("one newline after image $kind") { main {
+                    val ic=input()!!
+                    when(kind) {
+                        "keyevent" -> { check(ic.sendKeyEvent(KeyEvent(0,KeyEvent.KEYCODE_ENTER)));ic.sendKeyEvent(KeyEvent(1,KeyEvent.KEYCODE_ENTER)) }
+                        "commitText" -> check(ic.commitText("\n",1))
+                        else -> check(ic.performEditorAction(EditorInfo.IME_ACTION_NONE))
+                    }
+                } }
+                main { check(e().blocks.size==4 && e().blocks[1].id==picture && e().blocks[2].text.isEmpty() && e().blocks[3].text=="后文") { e().blocks.map { it.type to it.text }.toString() } }
+                watch("second newline after image $kind") { main { check(input()!!.performEditorAction(EditorInfo.IME_ACTION_NONE)) } }
+                main { check(e().blocks.size==5 && e().blocks[3].text.isEmpty() && e().blocks[4].text=="后文"); e().undo() }; settle()
+                main { check(e().blocks.size==4);e().redo() }; settle()
+                main { check(e().blocks.size==5 && e().blocks[1].id==picture) }
+                pass("image-after-$kind-adds-one-line-per-enter-and-shares-history")
+            }
+            for(kind in listOf("deleteSurroundingText","codepoints","keyevent")) {
+                open(listOf(Block(text="图前"),Block(type=BlockType.IMAGE,image="preserved.png"),Block(),Block(text="保留正文")))
+                val before=main { e().content() }; val picture=main { e().blocks[1].id }
+                main { e().placeCaret(SelectionPoint(e().blocks[2].id,1),deferFocus=true) }; settle()
+                watch("delete empty line below picture $kind") { main {
+                    val ic=input()!!
+                    when(kind) {
+                        "deleteSurroundingText" -> check(ic.deleteSurroundingText(1,0))
+                        "codepoints" -> check(ic.deleteSurroundingTextInCodePoints(1,0))
+                        else -> {
+                            check(ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN,KeyEvent.KEYCODE_DEL))) { "DEL down rejected" }
+                            // Moving focus to the image can close this connection
+                            // before key-up. Verify the edit and new focus below.
+                            ic.sendKeyEvent(KeyEvent(KeyEvent.ACTION_UP,KeyEvent.KEYCODE_DEL))
+                        }
+                    }
+                } }
+                main { check(e().blocks.map { it.type }==listOf(BlockType.TEXT,BlockType.IMAGE,BlockType.TEXT)); check(e().blocks[1].id==picture && e().blocks.last().text=="保留正文"); check(e().imageCaret==SelectionPoint(picture,2)) }
+                watch("undo redo empty line below picture $kind") { main { e().undo() }; settle(); main { check(e().content()==before); e().redo() } }
+                main { check(e().blocks[1].id==picture && e().blocks.size==3) }
+                pass("empty-line-below-picture-$kind-keeps-image-keyboard-and-shared-history")
+            }
             open(listOf(Block(text="图前"),Block(type=BlockType.IMAGE,image="preserved.png"),Block(),Block(),Block(text="图后正文")))
             val original=main { e().content() }; val image=main { e().blocks[1] }
             main { e().placeCaret(SelectionPoint(image.id,2),deferFocus=true) }; settle()

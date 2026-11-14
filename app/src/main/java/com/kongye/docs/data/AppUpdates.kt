@@ -75,7 +75,7 @@ internal class AppUpdates(
         val rawDigest=apk["digest"]?.jsonPrimitive?.contentOrNull
         val sha=rawDigest?.let { require(it.startsWith("sha256:")) { "APK 校验格式不受支持" }; it.removePrefix("sha256:").lowercase() }
         require(sha==null || Regex("[0-9a-f]{64}").matches(sha)) { "APK 校验值无效" }
-        return AppRelease(ver,tag,json["body"]?.jsonPrimitive?.contentOrNull.orEmpty().take(6000),url,size,sha)
+        return AppRelease(ver,tag,json["body"]?.jsonPrimitive?.contentOrNull.orEmpty().take(60000),url,size,sha)
     }
     suspend fun latest(context: Context): AppRelease = withContext(Dispatchers.IO) {
         require(api==API || isFixture(api)) { "不受信任的更新源" }

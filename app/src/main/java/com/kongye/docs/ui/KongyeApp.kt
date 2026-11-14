@@ -91,6 +91,7 @@ fun KongyeApp() {
                     Screen.LocalBackup -> LocalBackupScreen()
                     Screen.CloudBackup -> CloudBackupScreen()
                     Screen.About -> AboutScreen()
+                    Screen.UpdateHistory -> com.kongye.docs.ui.screens.UpdateHistoryScreen()
                     is Screen.VaultEdit -> com.kongye.docs.ui.vault.VaultEditScreen(screen.id, screen.type)
                     Screen.VaultFill -> com.kongye.docs.ui.vault.VaultFillScreen()
                 }

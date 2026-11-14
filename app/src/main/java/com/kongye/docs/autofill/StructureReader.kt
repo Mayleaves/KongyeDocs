@@ -24,7 +24,8 @@ object StructureReader {
     private val SUBMIT = Regex("""^(?:立即|免费|快速)?(?:登\s*录|注\s*册|提交|确定|确认|完成|下一步|保存|继续|创建(?:账号|帐号|账户)?|修改|重置|登录/注册)$|^(?:log\s*in|sign\s*in|sign\s*up|register|submit|continue|next|save|create\s+account|done|ok)$""", RegexOption.IGNORE_CASE)
 
     fun read(structure: AssistStructure): Read {
-        val pkg = structure.activityComponent?.packageName.orEmpty()
+        val activity = structure.activityComponent
+        val pkg = activity?.packageName.orEmpty()
         val items = ArrayList<Item>()
         var domain = ""
         var submit: AutofillId? = null
@@ -39,7 +40,8 @@ object StructureReader {
             val tag = html?.tag?.lowercase().orEmpty()
             val type = attrs["type"]?.lowercase().orEmpty()
             val className = node.className.orEmpty()
-            val text = node.text?.toString()?.trim().orEmpty()
+            val text = sequenceOf(node.text?.toString(), node.contentDescription?.toString(), attrs["aria-label"], attrs["title"])
+                .mapNotNull { it?.trim()?.takeIf(String::isNotEmpty) }.firstOrNull().orEmpty()
             val isInput = node.autofillId != null && node.autofillType == View.AUTOFILL_TYPE_TEXT && (
                 className.contains("EditText") || node.inputType != 0 ||
                     tag == "input" && type !in setOf("hidden", "submit", "button", "checkbox", "radio", "image", "reset", "file", "range", "color", "search") ||
@@ -92,6 +94,7 @@ object StructureReader {
             )
         }
         val texts = items.filterIsInstance<Item.Text>().map { PageText(it.text, it.button) }
-        return Read(Page(pkg, domain, fields, texts), submit)
+        val registrationScreen = domain.isEmpty() && Page.isRegistrationScreen(activity?.className.orEmpty())
+        return Read(Page(pkg, domain, fields, texts, registrationScreen), submit)
     }
 }

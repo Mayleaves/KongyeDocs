@@ -55,6 +55,8 @@ data class VaultEntry(
     val appCerts: Map<String, String> = emptyMap(),
     /** 3.3：注册时页面写的密码要求（仿 passwordrules 格式），以后改密码时直接用；没有时为空 */
     val passwordRules: String = "",
+    /** Sites explicitly removed from keyboard account recommendations. */
+    val excludedDomains: List<String> = emptyList(),
 ) {
     val pinned get() = pinnedAt > 0L
 

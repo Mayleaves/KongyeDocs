@@ -1,9 +1,5 @@
 package com.kongye.docs.ui.screens
 
-import android.app.usage.StorageStatsManager
-import android.content.Context
-import android.os.Process
-import android.os.storage.StorageManager
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.Spring
@@ -51,7 +47,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.translate
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
@@ -70,11 +65,8 @@ import com.kongye.docs.ui.leafPaths
 import com.kongye.docs.ui.theme.Kongye
 import com.kongye.docs.data.Settings
 import com.kongye.docs.util.dayNumber
-import com.kongye.docs.util.sizeText
 import java.text.SimpleDateFormat
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.util.Calendar
 import java.util.Locale
 import kotlin.math.sin
@@ -109,14 +101,10 @@ private class FallingLeaf(rnd: Random) {
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AboutScreen() {
-    val context = LocalContext.current
     val items by Repository.items.collectAsState()
     val alive = remember(items) { items.filter { Repository.isAlive(it, items) } }
     val aliveDocs = alive.filter { it.isDoc }
     val words = aliveDocs.sumOf { it.words }
-    // 占用空间：应用本身 + 全部数据（和系统设置里看到的一致）；以及其中笔记数据的大小
-    var storage by remember { mutableStateOf<Pair<Long, Long>?>(null) }
-    LaunchedEffect(Unit) { storage = withContext(Dispatchers.IO) { appStorage(context) } }
     val today = remember { Calendar.getInstance() }
     val birthday = today.get(Calendar.MONTH) == Calendar.OCTOBER && today.get(Calendar.DAY_OF_MONTH) == 25
 
@@ -184,13 +172,7 @@ fun AboutScreen() {
                     HLine(color = Kongye.Line)
                     AboutRow("已写下", String.format(Locale.US, "%,d 字", words))
                     AboutRow("相当于", if (words >= 28) "${words / 28} 首七言绝句" else "还不够一首绝句，接着写吧")
-                    UpdateEntries(between = {
-                        SettingRow("占用空间",storage?.let { sizeText(it.first) } ?: "计算中…",showChevron=false) {
-                            storage?.let { (total,notes) ->
-                                Toast.show(if(total > notes) "其中笔记和图片 ${sizeText(notes).ifEmpty { "0 KB" }}，其余是应用本身和缓存" else "全部是笔记和图片")
-                            }
-                        }
-                    })
+                    UpdateEntries()
                     HLine(color = Kongye.Line)
                 }
                 Spacer(Modifier.height(36.dp))
@@ -229,17 +211,6 @@ private fun TogetherLine(firstUse: Long, now: Calendar, modifier: Modifier = Mod
         },
         modifier, fontSize = 13.sp, color = Kongye.Sub,
     )
-}
-
-/** 应用总共占用的空间（与系统设置一致：应用本身 + 数据 + 缓存）和其中笔记数据的大小 */
-private fun appStorage(context: Context): Pair<Long, Long> {
-    val notes = Repository.dataSize()
-    val total = runCatching {
-        val stats = context.getSystemService(StorageStatsManager::class.java)
-            .queryStatsForUid(StorageManager.UUID_DEFAULT, Process.myUid())
-        stats.appBytes + stats.dataBytes
-    }.getOrNull()?.takeIf { it >= notes } ?: notes
-    return total to notes
 }
 
 @Composable

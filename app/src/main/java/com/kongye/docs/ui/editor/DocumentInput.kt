@@ -172,7 +172,13 @@ internal class DocumentInputConnection(target: InputConnection, private val cont
     override fun sendKeyEvent(event: KeyEvent): Boolean {
         trace { "sendKeyEvent action=${event.action} code=${event.keyCode} meta=${event.metaState} body=${main { bodyInput() }}" }
         if(!main { bodyInput() }) return super.sendKeyEvent(event)
-        if(event.keyCode in listOf(KeyEvent.KEYCODE_DEL,KeyEvent.KEYCODE_FORWARD_DEL) && main { editor.imageCaret!=null }) {
+        val imageBoundary=event.keyCode==KeyEvent.KEYCODE_DEL && main {
+            val b=editor.focused
+            b!=null && b.type==com.kongye.docs.data.BlockType.TEXT && b.value.selection.collapsed && b.value.selection.start==1 &&
+                b.value.composition==null && editor.blocks.getOrNull(editor.blocks.indexOf(b)-1)?.type==com.kongye.docs.data.BlockType.IMAGE
+        }
+        if(event.keyCode in listOf(KeyEvent.KEYCODE_DEL,KeyEvent.KEYCODE_FORWARD_DEL) && !event.isCtrlPressed && !event.isAltPressed &&
+            main { editor.imageCaret!=null || event.keyCode==KeyEvent.KEYCODE_DEL && imageBoundary }) {
             if(event.action==KeyEvent.ACTION_DOWN) main {
                 ime?.delete(if(event.keyCode==KeyEvent.KEYCODE_DEL) 1 else 0,if(event.keyCode==KeyEvent.KEYCODE_FORWARD_DEL) 1 else 0,false)
                 ime?.notifyIme()

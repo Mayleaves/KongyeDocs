@@ -37,6 +37,7 @@ sealed interface Screen {
 
     /** 我的 → 关于 */
     data object About : Screen
+    data object UpdateHistory : Screen
 
     /** 密码空间：新增（id 为 null）或编辑一条动态密码 / 密码 */
     data class VaultEdit(val id: String?, val type: VaultType) : Screen

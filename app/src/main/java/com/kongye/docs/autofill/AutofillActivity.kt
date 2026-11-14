@@ -12,20 +12,20 @@ import android.view.autofill.AutofillManager
 import android.view.autofill.AutofillValue
 import android.widget.Toast
 import androidx.activity.ComponentActivity
+import androidx.activity.enableEdgeToEdge
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
-import androidx.compose.ui.text.input.KeyboardType
 import com.kongye.docs.vault.ManualPassword
 import com.kongye.docs.vault.lengthHint
 import kotlin.math.roundToInt
@@ -43,14 +43,17 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.border
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -80,6 +83,8 @@ import com.kongye.docs.data.VaultEntry
 import com.kongye.docs.data.VaultStore
 import com.kongye.docs.ui.components.ConfirmDialog
 import com.kongye.docs.ui.components.KongyeIcons
+import com.kongye.docs.ui.components.KongyeSwitch
+import com.kongye.docs.ui.components.HLine
 import com.kongye.docs.ui.theme.Kongye
 import com.kongye.docs.ui.theme.KongyeTheme
 import com.kongye.docs.vault.AppCerts
@@ -94,7 +99,7 @@ import java.util.Calendar
  * 自动填充弹出的界面（透明背景 + 底部卡片）：
  * - fill：选中下拉框里的一条 → 解锁 → 把账号密码交给系统
  * - more：「更多密码」→ 搜索 → 选中 → 解锁 → 交给系统，并关联当前 App / 网站
- * - generate：「生成强密码」→ 显示要求和生成的密码 → 填进新密码框和确认框
+ * - generate：「生成随机密码」→ 显示要求和生成的密码 → 填进新密码框和确认框
  * - save：提交后系统的保存提示 → 确认页（改名称、勾选字段）→ 存进密码空间
  * 窗口禁止截屏；账号密码只在内存里经过。
  */
@@ -122,10 +127,16 @@ class AutofillActivity : ComponentActivity() {
         KongyeApplication.awaitReady()
         window.addFlags(WindowManager.LayoutParams.FLAG_SECURE)
         window.setWindowAnimations(0)
+        if(mode!=MODE_FILL) enableEdgeToEdge()
         if (mode == MODE_FILL) window.addFlags(WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE)
         @Suppress("DEPRECATION")
         overridePendingTransition(0, 0)
-        window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
+        val inputState=when(mode) {
+            MODE_MORE -> WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
+            MODE_GENERATE -> WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
+            else -> WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED
+        }
+        window.setSoftInputMode(inputState or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
         Kongye.dark = darkNow()
         pendingEntry = savedInstanceState?.getString("pending")
         when (mode) {
@@ -133,7 +144,11 @@ class AutofillActivity : ComponentActivity() {
                 setContent { KongyeTheme { CertWarning() } }
                 if (savedInstanceState == null) intent.getStringExtra(EXTRA_ENTRY)?.let { pick(it) } ?: cancel()
             }
-            MODE_MORE -> setContent { KongyeTheme { Sheet(::cancel) { SearchContent() }; CertWarning() } }
+            MODE_MORE -> setContent { KongyeTheme {
+                BackHandler { cancel() }
+                Column(Modifier.fillMaxSize().background(Kongye.Surface).statusBarsPadding().imePadding().navigationBarsPadding()) { SearchContent() }
+                CertWarning()
+            } }
             MODE_GENERATE -> setContent { KongyeTheme { Sheet(::cancel) { GenerateContent() } } }
             MODE_SAVE -> {
                 val token = intent.getStringExtra(EXTRA_TOKEN).orEmpty()
@@ -220,7 +235,7 @@ class AutofillActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun SearchContent() {
+    private fun androidx.compose.foundation.layout.ColumnScope.SearchContent() {
         var query by rememberSaveable { mutableStateOf("") }
         val searchFocus = remember { FocusRequester() }
         val keyboard = LocalSoftwareKeyboardController.current
@@ -228,7 +243,7 @@ class AutofillActivity : ComponentActivity() {
         val full = Settings.value.autofillFullAccount
         val shown = remember(query) {
             if (query.isBlank()) {
-                val matched = VaultApi.match(app, domain) { AppCerts.of(this, it) }.map { it.first }
+                val matched = VaultApi.match(app, domain) { AppCerts.of(this@AutofillActivity, it) }.map { it.first }
                 (matched + VaultApi.fillable().sortedByDescending { it.lastUsedAt }).distinctBy { it.id }.take(40)
             } else VaultApi.search(query)
         }
@@ -246,7 +261,7 @@ class AutofillActivity : ComponentActivity() {
             )
         }
         Spacer(Modifier.height(6.dp))
-        LazyColumn(Modifier.fillMaxWidth().heightIn(max = 380.dp)) {
+        LazyColumn(Modifier.fillMaxWidth().weight(1f)) {
             if (shown.isEmpty()) item { Text("没有找到", Modifier.fillMaxWidth().padding(28.dp), fontSize = 14.sp, color = Kongye.Sub, textAlign = TextAlign.Center) }
             items(shown, key = { it.id }) { e -> EntryRow(e, full) { pick(e.id) } }
         }
@@ -270,6 +285,7 @@ class AutofillActivity : ComponentActivity() {
     // ---------- 生成 ----------
 
     @Composable
+    @OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
     private fun GenerateContent() {
         @Suppress("DEPRECATION") val base = remember { intent.getBundleExtra(EXTRA_RULES)?.let { PasswordRules.fromBundle(it) } ?: PasswordRules() }
         val stated = intent.getBooleanExtra(EXTRA_RULES_STATED, false)
@@ -284,51 +300,74 @@ class AutofillActivity : ComponentActivity() {
         var password by remember { mutableStateOf(if (options().groups.isEmpty()) "" else options().generate()) }
         val valid = options().groups.isNotEmpty() && length >= options().groups.size
         fun regenerate() { if (options().groups.isNotEmpty() && length >= options().groups.size) password = options().generate() else password = "" }
-        val passwordFocus = remember { FocusRequester() }
-        val keyboard = LocalSoftwareKeyboardController.current
-        LaunchedEffect(Unit) { passwordFocus.requestFocus(); keyboard?.show() }
-        Column(Modifier.fillMaxWidth().heightIn(max = 440.dp).verticalScroll(rememberScrollState())) {
-            Title("生成强密码", label)
+        Column(Modifier.fillMaxWidth().heightIn(max = 760.dp)) {
+            Title("生成随机密码", label)
+            Column(Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState())) {
             Text(
                 if (stated) "${base.lengthHint()}，请按实际要求调整" else "未识别到页面要求，请自行选择", Modifier.padding(horizontal = 20.dp), fontSize = 13.sp, color = Kongye.Text3,
             )
-            Box(Modifier.padding(horizontal = 16.dp, vertical = 10.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Kongye.Field).padding(14.dp)) {
-                BasicTextField(
-                    password, { password = it.take(64) }, singleLine = true,
-                    textStyle = TextStyle(fontSize = 18.sp, fontFamily = FontFamily.Monospace, color = Kongye.Ink),
-                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Password),
-                    cursorBrush = SolidColor(Kongye.Primary),
-                    modifier = Modifier.fillMaxWidth().focusRequester(passwordFocus).semantics { contentDescription = "生成的密码" },
-                )
+            Column(Modifier.padding(horizontal=16.dp,vertical=12.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Kongye.Field).padding(14.dp)) {
+                Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
+                    Text("生成的密码",Modifier.weight(1f),fontSize=12.sp,color=Kongye.Text3)
+                    Text("换一个",Modifier.clip(RoundedCornerShape(6.dp)).clickable { regenerate() }.padding(horizontal=8.dp,vertical=4.dp),fontSize=13.sp,color=Kongye.Link)
+                }
+                Spacer(Modifier.height(8.dp))
+                SelectionContainer {
+                    Text(password,Modifier.fillMaxWidth().semantics { contentDescription = "生成的密码" },
+                        fontSize=18.sp,fontFamily=FontFamily.Monospace,color=Kongye.Ink,lineHeight=26.sp)
+                }
             }
             Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text("长度：$length 字符", Modifier.weight(1f), color = Kongye.Ink, fontSize = 15.sp)
-                Chip("换一个") { regenerate() }
+                Text("密码长度", Modifier.weight(1f), color = Kongye.Ink, fontSize = 15.sp)
+                Text("长度：$length 字符",Modifier.clip(RoundedCornerShape(6.dp)).background(Kongye.PrimarySoft).padding(horizontal=10.dp,vertical=5.dp),color=Kongye.Primary,fontSize=13.sp)
             }
-            Slider(
-                value = length.toFloat(), onValueChange = { length = it.roundToInt(); regenerate() },
-                valueRange = 4f..64f, steps = 59,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp).semantics { contentDescription = "密码长度" },
-            )
-            GeneratorOption("大写字母 ( A → Z )", upper) { upper = it; regenerate() }
-            GeneratorOption("小写字母 ( a → z )", lower) { lower = it; regenerate() }
-            GeneratorOption("常用数字 ( 2 → 9 )", digits) { digits = it; regenerate() }
-            GeneratorOption("特殊符号 ( ${'$'}%&^*()[].@#_! )", symbols) { symbols = it; regenerate() }
-            GeneratorOption("易混字符 ( 10iolIOL )", ambiguous) { ambiguous = it; regenerate() }
+            Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp).clip(RoundedCornerShape(10.dp)).background(Kongye.Field).padding(horizontal=6.dp),verticalAlignment=Alignment.CenterVertically) {
+                LengthStep("−","减少密码长度",length>4) { length--;regenerate() }
+                Slider(
+                    value=length.toFloat(),onValueChange={ val next=it.roundToInt(); if(next!=length) { length=next;regenerate() } },valueRange=4f..64f,
+                    thumb={ Box(Modifier.size(20.dp).clip(CircleShape).background(Kongye.Surface).border(2.dp,Kongye.Primary,CircleShape)) },
+                    track={ SliderDefaults.Track(it,Modifier.height(4.dp),colors=SliderDefaults.colors(activeTrackColor=Kongye.Primary,inactiveTrackColor=Kongye.Line2),drawStopIndicator=null,thumbTrackGapSize=0.dp) },
+                    modifier=Modifier.weight(1f).padding(horizontal=8.dp).semantics { contentDescription="密码长度" },
+                )
+                LengthStep("+","增加密码长度",length<64) { length++;regenerate() }
+            }
+            Text("字符组成",Modifier.padding(start=20.dp,top=4.dp,bottom=8.dp),fontSize=12.sp,color=Kongye.Text3)
+            Column(Modifier.padding(horizontal=16.dp).clip(RoundedCornerShape(12.dp)).border(0.6.dp,Kongye.Line2,RoundedCornerShape(12.dp))) {
+                GeneratorOption("大写字母","A–Z",upper) { upper=it;regenerate() }
+                GeneratorOption("小写字母","a–z",lower) { lower=it;regenerate() }
+                GeneratorOption("常用数字","2–9",digits) { digits=it;regenerate() }
+                GeneratorOption("特殊符号","${'$'} % & # …",symbols) { symbols=it;regenerate() }
+                GeneratorOption("易混字符","1 0 i o l I O L",ambiguous,last=true) { ambiguous=it;regenerate() }
+            }
             Text("易混字符只在勾选后加入；每个已选类别至少含一个字符。", Modifier.padding(horizontal = 20.dp, vertical = 4.dp), fontSize = 12.sp, color = Kongye.Text3)
             val outside = (base.minLength?.let { password.length < it } == true || base.maxLength?.let { password.length > it } == true)
             if (!valid || password.isEmpty()) Text("请至少选择一类字符；长度不能少于所选类别数。", Modifier.padding(horizontal = 20.dp), color = Kongye.Danger, fontSize = 13.sp)
             else if (outside) Text("长度与识别范围不同，请确认实际页面要求。", Modifier.padding(horizontal = 20.dp), color = Kongye.Danger, fontSize = 13.sp)
-            Spacer(Modifier.height(10.dp))
-            PrimaryButton("填入这个密码") { if (valid && password.isNotEmpty()) useGenerated(password) }
+            Spacer(Modifier.height(12.dp))
+            }
+            HLine(color=Kongye.Line)
+            Spacer(Modifier.height(12.dp))
+            PrimaryButton("填入这个密码",enabled=valid && password.isNotEmpty()) { useGenerated(password) }
         }
     }
 
     @Composable
-    private fun GeneratorOption(text: String, selected: Boolean, change: (Boolean) -> Unit) {
-        Row(Modifier.fillMaxWidth().clickable { change(!selected) }.padding(start = 20.dp, end = 12.dp).height(40.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(text, Modifier.weight(1f), fontSize = 14.sp, color = Kongye.Ink)
-            Checkbox(checked = selected, onCheckedChange = null)
+    private fun LengthStep(text: String,label: String,enabled: Boolean,change: ()->Unit) {
+        Box(Modifier.size(36.dp).clip(RoundedCornerShape(8.dp)).clickable(enabled=enabled,onClick=change).semantics { contentDescription=label },contentAlignment=Alignment.Center) {
+            Text(text,fontSize=22.sp,color=if(enabled) Kongye.Ink else Kongye.Text4)
+        }
+    }
+
+    @Composable
+    private fun GeneratorOption(text: String, sample: String, selected: Boolean,last: Boolean=false,change: (Boolean) -> Unit) {
+        Column {
+            Row(Modifier.fillMaxWidth().clickable { change(!selected) }.padding(horizontal=14.dp).height(48.dp),verticalAlignment=Alignment.CenterVertically) {
+                Text(text,fontSize=14.sp,color=Kongye.Ink)
+                Spacer(Modifier.width(8.dp))
+                Text(sample,Modifier.weight(1f),fontSize=12.sp,color=Kongye.Text3)
+                KongyeSwitch(selected,change)
+            }
+            if(!last) HLine(Modifier.padding(horizontal=14.dp),color=Kongye.Line)
         }
     }
 
@@ -403,6 +442,7 @@ class AutofillActivity : ComponentActivity() {
         BackHandler(onBack = onDismiss)
         Box(
             Modifier.fillMaxSize()
+                .then(if(mode==MODE_GENERATE) Modifier.background(Color.Black.copy(alpha=0.45f)) else Modifier)
                 .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
             contentAlignment = Alignment.BottomCenter,
         ) {
@@ -452,10 +492,10 @@ class AutofillActivity : ComponentActivity() {
     }
 
     @Composable
-    private fun PrimaryButton(text: String, inset: Boolean = true, onClick: () -> Unit) {
+    private fun PrimaryButton(text: String, inset: Boolean = true,enabled: Boolean=true, onClick: () -> Unit) {
         Box(
             Modifier.then(if (inset) Modifier.padding(horizontal = 16.dp) else Modifier).fillMaxWidth().height(46.dp)
-                .clip(RoundedCornerShape(10.dp)).background(Kongye.Primary).clickable(onClick = onClick),
+                .clip(RoundedCornerShape(10.dp)).background(if(enabled) Kongye.Primary else Kongye.Text4).clickable(enabled=enabled,onClick = onClick),
             contentAlignment = Alignment.Center,
         ) { Text(text, fontSize = 16.sp, color = Color.White, fontWeight = FontWeight.Medium) }
     }

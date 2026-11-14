@@ -45,9 +45,9 @@ data class PageField<T>(
 data class PageText(val text: String, val button: Boolean = false)
 
 /** 识别结果：每个框的类型、页面类型、新密码框的要求 */
-class Page<T>(val pkg: String, val domain: String, val fields: List<PageField<T>>, val texts: List<PageText>) {
+class Page<T>(val pkg: String, val domain: String, val fields: List<PageField<T>>, val texts: List<PageText>, registrationScreen: Boolean = false) {
     val types: List<FieldType> = classifyAll(fields)
-    val kind: PageKind = kindOf(types, texts)
+    val kind: PageKind = kindOf(types, texts, registrationScreen)
     val score: Int = registerScore(types, texts)
 
     fun first(vararg t: FieldType): PageField<T>? = fields.indices.firstOrNull { types[it] in t }?.let { fields[it] }
@@ -57,7 +57,11 @@ class Page<T>(val pkg: String, val domain: String, val fields: List<PageField<T>
     /** 账号框：用户名 / 手机号 / 邮箱里最靠前的 */
     val account: PageField<T>? get() = first(FieldType.USERNAME, FieldType.PHONE, FieldType.EMAIL)
     /** 登录用的密码框：改密码页是当前密码框，其他是普通密码框 */
-    val loginPassword: PageField<T>? get() = if (kind == PageKind.CHANGE) first(FieldType.CURRENT) ?: first(FieldType.PASSWORD) else first(FieldType.PASSWORD, FieldType.CURRENT)
+    val loginPassword: PageField<T>? get() = when (kind) {
+        PageKind.LOGIN -> first(FieldType.PASSWORD, FieldType.CURRENT)
+        PageKind.REGISTER -> null
+        PageKind.CHANGE -> first(FieldType.CURRENT) ?: first(FieldType.PASSWORD)
+    }
     /** 新密码框：注册 / 改密码页才有；注册页没标"新密码"时用第一个密码框 */
     val newPassword: PageField<T>? get() = when (kind) {
         PageKind.LOGIN -> null
@@ -99,7 +103,7 @@ class Page<T>(val pkg: String, val domain: String, val fields: List<PageField<T>
         fun <T> classify(f: PageField<T>): FieldType {
             val label = f.label
             val hints = f.hints.map { it.lowercase() }
-            val ac = f.autocomplete.lowercase()
+            val ac = f.autocomplete.lowercase().trim().split(Regex("\\s+")).last()
             val pwd = f.passwordInput
             val cls = f.inputType and InputType.TYPE_MASK_CLASS
             val variation = f.inputType and InputType.TYPE_MASK_VARIATION
@@ -145,6 +149,7 @@ class Page<T>(val pkg: String, val domain: String, val fields: List<PageField<T>
         }
 
         private val SUBMIT_REGISTER = re("""^(?:立即|免费|快速)?注册(?:账号|帐号)?$|创建(?:账号|帐号|账户)|完成注册|^sign\s*up$|^register$|create\s+(?:an\s+)?account|^join$""")
+        private val REGISTER_HEADING = re("""^(?:(?:新用户|个人|企业|邮箱|手机(?:号)?|账号)?注册(?:个人版|企业版|账号|帐号|账户)?|创建(?:账号|帐号|账户)|sign\s*up|register|create\s+(?:an\s+)?account)$""")
         private val TITLE_REGISTER = re("""注册|创建(?:账号|帐号|账户)|新用户|sign\s*up|register|join\s+now""")
         private val FORGOT = re("""忘记密码|找回密码|forgot\s*(?:your\s+)?password""")
         private val SUBMIT_LOGIN = re("""^登\s*录$|^log\s*in$|^sign\s*in$|^登录/注册$""")
@@ -163,11 +168,19 @@ class Page<T>(val pkg: String, val domain: String, val fields: List<PageField<T>
             return s
         }
 
-        fun kindOf(types: List<FieldType>, texts: List<PageText>): PageKind {
+        private val REGISTER_ACTIVITY = re("""^(?:[a-z0-9_]+\.)*(?:register|registration|signUp|createAccount)(?:password|form|step\d+)?(?:activity|screen)$""")
+
+        fun isRegistrationScreen(className: String): Boolean = REGISTER_ACTIVITY.matches(className)
+
+        fun kindOf(types: List<FieldType>, texts: List<PageText>, registrationScreen: Boolean = false): PageKind {
             val change = FieldType.CURRENT in types && (FieldType.NEW_PASSWORD in types || FieldType.CONFIRM in types) ||
                 texts.any { it.text.length <= 30 && CHANGE_TITLE.containsMatchIn(it.text) } && types.count { it.isPassword } >= 2
             return when {
                 change -> PageKind.CHANGE
+                FieldType.NEW_PASSWORD in types -> PageKind.REGISTER
+                FieldType.PASSWORD in types && FieldType.CURRENT !in types &&
+                    texts.none { it.button && SUBMIT_LOGIN.matches(it.text.trim()) } &&
+                    (registrationScreen || texts.any { if (it.button) SUBMIT_REGISTER.matches(it.text.trim()) else REGISTER_HEADING.matches(it.text.trim()) }) -> PageKind.REGISTER
                 registerScore(types, texts) >= 3 -> PageKind.REGISTER
                 else -> PageKind.LOGIN
             }

@@ -25,7 +25,7 @@ import java.io.File
  */
 object V33Regression {
     /**
-     * 自动填充界面的真机检查（-e only v33-ui）：生成强密码、保存确认、更多密码三种弹出界面能打开、显示对、能关掉。
+     * 自动填充界面的真机检查（-e only v33-ui）：生成随机密码、保存确认、更多密码三种弹出界面能打开、显示对、能关掉。
      * 只在 .audit 测试包里打开自己的界面，不碰其他 App；截图存到测试包的外部文件目录。
      */
     fun runUi(instrument: Instrumentation, context: Context, passed: (String) -> Unit) {
@@ -56,10 +56,10 @@ object V33Regression {
         fun back() { auto.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK); Thread.sleep(700) }
         val A = com.kongye.docs.autofill.AutofillActivity
 
-        // 生成强密码：页面要求"8–16 位，须包含字母和数字"
+        // 生成随机密码：页面要求"8–16 位，须包含字母和数字"
         open(A.EXTRA_MODE to A.MODE_GENERATE, A.EXTRA_PKG to "com.example.shop", A.EXTRA_LABEL to "示例商城",
             A.EXTRA_RULES to PasswordRules.parse("密码 8–16 位，须包含字母和数字").toBundle(), A.EXTRA_RULES_STATED to true)
-        waitFor("generate sheet") { t -> t.contains("生成强密码") && t.any { it.contains("按页面要求：16 位 · 字母+数字") } && t.contains("填入这个密码") }
+        waitFor("generate sheet") { t -> t.contains("生成随机密码") && t.any { it.contains("按页面要求：16 位 · 字母+数字") } && t.contains("填入这个密码") }
         shot("v33-generate.png")
         back(); waitFor("generate closed") { t -> !t.contains("填入这个密码") }
         passed("generate-sheet-shows-rule-summary")
@@ -149,6 +149,17 @@ object V33Regression {
             listOf(PageText("添加账号"), PageText("未注册手机号验证通过后将自动注册"), PageText("登录", true), PageText("忘记密码"))).let { p ->
             check(p.kind == PageKind.LOGIN && p.types == listOf(FieldType.PHONE, FieldType.PASSWORD) && p.newPassword == null && p.loginPassword?.id == 2) { "S10 ${p.kind} ${p.types}" }
         }
+        val singlePassword = listOf(f(1, "手机号"), f(2, "密码", PWD))
+        for (texts in listOf(listOf(PageText("注册", true)), listOf(PageText("注册个人版"), PageText("下一步", true)))) {
+            val page = Page("com.example", "", singlePassword, texts)
+            check(page.kind == PageKind.REGISTER && page.newPassword?.id == 2 && page.loginPassword == null)
+        }
+        Page("com.example", "", singlePassword, listOf(PageText("登录", true), PageText("快速注册", true))).let { p ->
+            check(p.kind == PageKind.LOGIN && p.newPassword == null)
+        }
+        check(Page.isRegistrationScreen("com.example.RegisterPasswordActivity"))
+        check(!Page.isRegistrationScreen("com.example.LoginActivity"))
+        check(Page("com.example", "", singlePassword, emptyList(), registrationScreen = true).newPassword?.id == 2)
         Page("com.example", "", listOf(f(1, "用户名"), f(2, "设置密码", PWD, nearby = "8-16位，须包含字母和数字"), f(3, "确认密码", PWD)),
             listOf(PageText("注册", true))).let { p ->
             check(p.kind == PageKind.REGISTER && p.newPassword?.id == 2 && p.confirm?.id == 3 && p.account?.id == 1) { "register ${p.kind} ${p.types}" }
@@ -163,7 +174,7 @@ object V33Regression {
         check(Page.classify(f(1, "短信验证码", PWD)) == FieldType.OTP)
         Page("site", "example.com", listOf(
             f(1, "email", html = "email"),
-            f(2, "", html = "password", ac = "new-password", attrs = mapOf("passwordrules" to "minlength: 10; maxlength: 12; required: upper; required: digit")),
+            f(2, "", html = "password", ac = "section-registration new-password", attrs = mapOf("passwordrules" to "minlength: 10; maxlength: 12; required: upper; required: digit")),
         ), emptyList()).let { p ->
             check(p.types == listOf(FieldType.EMAIL, FieldType.NEW_PASSWORD) && p.kind == PageKind.REGISTER) { "html ${p.types}" }
             check(p.rules().maxLength == 12 && CharClass.UPPER in p.rules().require)

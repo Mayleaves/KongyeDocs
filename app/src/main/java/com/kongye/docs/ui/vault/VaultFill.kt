@@ -56,6 +56,7 @@ import com.kongye.docs.ui.components.Toast
 import com.kongye.docs.ui.components.TopBar
 import com.kongye.docs.ui.screens.SettingsGroup
 import com.kongye.docs.ui.screens.SettingsTitle
+import com.kongye.docs.ui.screens.SettingRow
 import com.kongye.docs.ui.screens.SwitchRow
 import com.kongye.docs.ui.theme.Kongye
 import com.kongye.docs.util.formatTime
@@ -102,37 +103,21 @@ fun VaultFillScreen() {
                 SettingsGroup {
                     SwitchRow("允许空叶键盘 / 悬浮球读取", settings.vaultFill) { on -> Settings.update { it.copy(vaultFill = on) } }
                 }
-                Text(
-                    "开启后，空叶键盘可以在登录框的候选栏里填账号密码，空叶悬浮球在你点「填充密码」时填写。" +
-                        "读取账号密码前要用指纹或锁屏密码解锁，${VaultAccess.UNLOCK_MILLIS / 60_000} 分钟内有效，锁屏立即失效。只有和空叶文档同一签名的这两个 App 能读取。",
-                    Modifier.padding(horizontal = 20.dp, vertical = 10.dp), fontSize = 13.sp, color = Kongye.Text3, lineHeight = 19.sp,
-                )
                 SettingsTitle("系统自动填充")
                 SettingsGroup {
-                    Row(Modifier.fillMaxWidth().height(54.dp).padding(start = 20.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Text("自动填充服务", fontSize = 16.sp, color = Kongye.Ink)
-                        Spacer(Modifier.weight(1f))
-                        Text(if (autofillOn) "已启用" else "未启用", fontSize = 15.sp, color = if (autofillOn) Kongye.Primary else Kongye.Sub)
-                        Text(
-                            if (autofillOn) "更改" else "去启用",
-                            Modifier.padding(start = 6.dp).clip(RoundedCornerShape(6.dp)).clickable {
-                                val intent = Intent(android.provider.Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE, android.net.Uri.parse("package:${context.packageName}"))
-                                runCatching { context.startActivity(intent) }.onFailure {
-                                    runCatching { context.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)) }
-                                }
-                            }.padding(horizontal = 10.dp, vertical = 8.dp),
-                            fontSize = 15.sp, color = Kongye.Link,
-                        )
+                    SettingRow(
+                        "自动填充服务",
+                        if (autofillOn) "已启用" else "未启用",
+                        valueColor = if (autofillOn) Kongye.Primary else Kongye.Sub,
+                    ) {
+                        val intent = Intent(android.provider.Settings.ACTION_REQUEST_SET_AUTOFILL_SERVICE, android.net.Uri.parse("package:${context.packageName}"))
+                        runCatching { context.startActivity(intent) }.onFailure {
+                            runCatching { context.startActivity(Intent(android.provider.Settings.ACTION_SETTINGS)) }
+                        }
                     }
-                    HLine(Modifier.padding(horizontal = 20.dp), color = Kongye.Divider)
                     SwitchRow("下拉框显示完整账号", settings.autofillFullAccount) { on -> Settings.update { it.copy(autofillFullAccount = on) } }
                     SwitchRow("保存前确认", settings.autofillConfirmSave) { on -> Settings.update { it.copy(autofillConfirmSave = on) } }
                 }
-                Text(
-                    "选为系统的自动填充服务后，点到登录框时输入框下会弹出账号（空叶键盘可以设成显示在工具栏），注册页可以生成符合要求的强密码，提交后提示保存。" +
-                        "选中账号后同样要用指纹或锁屏密码解锁。Chrome 还要在它自己的设置里打开「使用其他服务自动填充」；有的 App 会关掉自动填充，这时用空叶键盘或悬浮球。",
-                    Modifier.padding(horizontal = 20.dp, vertical = 10.dp), fontSize = 13.sp, color = Kongye.Text3, lineHeight = 19.sp,
-                )
                 SettingsTitle("状态")
                 SettingsGroup {
                     apps.forEach { (pkg, label) ->

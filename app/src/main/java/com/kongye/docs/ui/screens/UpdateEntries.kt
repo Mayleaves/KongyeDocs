@@ -8,6 +8,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
@@ -15,11 +16,14 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kongye.docs.data.AppRelease
 import com.kongye.docs.data.AppUpdates
 import com.kongye.docs.data.ReleaseNotes
+import com.kongye.docs.ui.AppState
+import com.kongye.docs.ui.Screen
 import com.kongye.docs.ui.components.*
 import com.kongye.docs.ui.theme.Kongye
 import com.kongye.docs.util.Share
@@ -90,6 +94,7 @@ internal fun UpdateEntries(client: AppUpdates = remember { AppUpdates() }, betwe
     SettingsGroup {
         SettingRow("GitHub","Mayleaves/KongyeDocs") { if(!Share.openUrl(context,AppUpdates.REPOSITORY)) Toast.show("没有可用的浏览器") }
         between()
+        SettingRow("更新历史","") { AppState.push(Screen.UpdateHistory) }
         SettingRow("检查更新",if(stage=="checking") "正在检查…" else "v"+AppUpdates.installed(context).version,last=true) {
             if(stage=="checking" || stage=="download") return@SettingRow
             stage="checking"
@@ -109,7 +114,19 @@ internal fun UpdateEntries(client: AppUpdates = remember { AppUpdates() }, betwe
         }
     }
     when(stage) {
-        "available" -> ConfirmDialog("发现新版本 v${release?.version}",ReleaseNotes.summary(release?.notes.orEmpty()),"下载更新",onDismiss={stage="idle"}) { download() }
+        "available","latest" -> DialogFrame(onDismiss={stage="idle"}) {
+            DialogTitle(if(stage=="available") "发现新版本 v${release?.version}" else "检查更新")
+            Text(
+                if(stage=="available") ReleaseNotes.summary(release?.notes.orEmpty()) else message,
+                Modifier.fillMaxWidth().padding(horizontal=24.dp),fontSize=14.sp,color=Kongye.Text2,
+                textAlign=if(stage=="available") TextAlign.Center else TextAlign.Start,
+                lineHeight=if(stage=="available") 21.sp else 22.sp,
+            )
+            Text("查看历史更新",Modifier.padding(horizontal=24.dp).padding(top=14.dp).clickable { stage="idle"; AppState.push(Screen.UpdateHistory) },color=Kongye.Link,fontSize=14.sp)
+            DialogButtons(if(stage=="available") "下载更新" else "知道了",Kongye.Primary,onCancel=if(stage=="available") ({stage="idle"}) else null) {
+                if(stage=="available") download() else stage="idle"
+            }
+        }
         "download" -> DialogFrame(onDismiss={job?.cancel();stage="idle"}) {
             DialogTitle("正在下载 v${release?.version}")
             DownloadBar(progress,release?.size ?: 0L)
@@ -120,7 +137,6 @@ internal fun UpdateEntries(client: AppUpdates = remember { AppUpdates() }, betwe
             try { permission.launch(Intent(AndroidSettings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,Uri.parse("package:"+context.packageName))) }
             catch(failure: Exception) { error(failure) }
         }
-        "latest" -> NoticeDialog("检查更新",message) {stage="idle"}
         "error" -> NoticeDialog("更新失败",message) {stage="idle"}
     }
 }

@@ -573,6 +573,22 @@ class EditorState(val docId: String, val isNew: Boolean) {
     private fun backspaceAtStart(b: BlockState) {
         val idx = blocks.indexOf(b)
         if (idx < 0) return
+        val image=blocks.getOrNull(idx-1)?.takeIf { it.type==BlockType.IMAGE }
+        if(image!=null && b.type==BlockType.TEXT && b.indent==0 && !b.firstIndent && b.align==Align.START) {
+            if(b.text.isEmpty()) {
+                checkpoint()
+                // Transfer the live input session before removing its empty line.
+                runCatching { image.focus.requestFocus() }
+                blocks.removeAt(idx)
+                changed()
+            }
+            imageCaret=SelectionPoint(image.id,2)
+            focusedId=image.id; focusedCell=null
+            requestFocus(image,1)
+            invalidateImeCallbacks()
+            keyboardSelection.reveal(imageCaret!!)
+            return
+        }
         checkpoint()
         when {
             b.type == BlockType.CODE -> {
@@ -1055,7 +1071,11 @@ class EditorState(val docId: String, val isNew: Boolean) {
         checkpoint()
         val before=point.offset==1
         val remainsAtImage=before && insertion.endsWith('\n')
-        val lines=insertion.split('\n').let { if(remainsAtImage) it.dropLast(1) else it }
+        // The image already occupies the line before a leading newline. Do not
+        // materialize that first split component as another blank paragraph.
+        val lines=insertion.split('\n').let {
+            if(remainsAtImage) it.dropLast(1) else if(!before && insertion.startsWith('\n')) it.drop(1) else it
+        }
         val added=lines.map { BlockState(Block(text=it)) }
         blocks.addAll(blocks.indexOf(image)+if(before) 0 else 1,added)
         if(remainsAtImage) {

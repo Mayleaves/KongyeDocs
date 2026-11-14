@@ -25,7 +25,7 @@ import java.util.Locale
 object VaultApi {
     /** 保持 1：v1 的键盘和悬浮球只认 1。新能力看 features */
     const val VERSION = 1
-    val FEATURES = listOf("generate.rules", "save.fields", "match.cert")
+    val FEATURES = listOf("generate.rules", "save.fields", "match.cert", "association.manage", "association.clear-url")
 
     /** 调用方白名单（签名权限之外的第二道） */
     val CALLERS = setOf("com.kongye.keyboard", "com.kongye.keyboard.debug", "com.kongye.floatball")
@@ -63,6 +63,7 @@ object VaultApi {
                 else -> when (method) {
                     "match" -> entries(match(app, domain) { AppCerts.of(context, it) }.filter { certAware || it.second != CERT_MISMATCH })
                     "search" -> entries(search(x.getString("query").orEmpty()).map { it to "search" })
+                    "association.list", "association.remove" -> manageAssociations(context,caller.orEmpty(),method,x)
                     "reveal" -> {
                         val e = VaultStore.get(x.getString("id").orEmpty())
                         entryName = e?.name.orEmpty()
@@ -104,6 +105,42 @@ object VaultApi {
         // status 调用很频繁，不记；其余每次都记（不记账号、密码）
         if (method != "status") log(caller.orEmpty(), method, target, domain, entryName, result.getString("status").orEmpty())
         return result
+    }
+
+    private data class AssociationTarget(val packageName:String,val domain:String,val observedAt:Long)
+    @Volatile private var associationTarget:AssociationTarget?=null
+
+    fun observeAutofillTarget(packageName:String,domain:String) {
+        associationTarget=AssociationTarget(packageName,host(domain).orEmpty(),android.os.SystemClock.elapsedRealtime())
+    }
+
+    private fun manageAssociations(context:Context,caller:String,method:String,extras:Bundle):Bundle {
+        val pkg=extras.getString("package").orEmpty()
+        if(pkg.isBlank())return status(ERROR)
+        val browser=Browsers.isBrowser(context,pkg)
+        val observed=associationTarget
+        val domain=if(browser && observed?.packageName==pkg &&
+            android.os.SystemClock.elapsedRealtime()-observed.observedAt<300_000) observed.domain else ""
+        if(browser && domain.isEmpty())return status(ERROR).apply {putString("message","请重新点一下网页账号框，再管理推荐")}
+        val scope=if(browser) domain else pkg
+        // Management includes previously hidden domain matches, so old exclusions can be removed too.
+        val matches=if(browser) fillable().filter {sameSite(host(it.url),domain)}.map {it to "domain"}
+            else match(pkg,"") {AppCerts.of(context,it)}
+        if(method=="association.list")return entries(matches).apply {
+            putString("scope",scope)
+            putString("removeMode",if(browser) "clear_url" else "remove_app")
+            putString("label",if(browser) domain else appLabel(context,pkg) ?: pkg)
+        }
+        if(extras.getString("scope")!=scope)return status(ERROR).apply {putString("message","页面已变化，请重新打开推荐管理")}
+        val id=extras.getString("id").orEmpty()
+        val entry=matches.firstOrNull {it.first.id==id}?.first ?: return status(NOT_FOUND)
+        if(!VaultAccess.isUnlocked(context))return status(LOCKED).apply {
+            putParcelable("unlock",unlockIntent(context,caller,entry))
+        }
+        VaultStore.update(id) {
+            if(browser)it.copy(url="",fields=it.fields.filterNot {field->field.label.trim()=="网址" && !field.secret},excludedDomains=it.excludedDomains.filterNot {sameSite(host(it),domain)}) else it.copy(apps=it.apps-pkg,appCerts=it.appCerts-pkg)
+        } ?: return status(NOT_FOUND)
+        return status(OK)
     }
 
     fun log(caller: String, method: String, target: String, domain: String, entry: String, status: String) {
@@ -148,7 +185,7 @@ object VaultApi {
         val byPackage = if (target.isEmpty()) emptyList() else fillable().filter { target in it.apps }
         val current by lazy { certOf(target) }
         val (trusted, mismatched) = byPackage.partition { e -> e.appCerts[target]?.let { AppCerts.matches(it, current) } ?: true }
-        val byDomain = if (domain.isEmpty()) emptyList() else fillable().filter { it !in byPackage && sameSite(host(it.url), domain) }
+        val byDomain = if (domain.isEmpty()) emptyList() else fillable().filter { it !in byPackage && sameSite(host(it.url), domain) && domain !in it.excludedDomains }
         return trusted.sortedByDescending { it.lastUsedAt }.map { it to "package" } +
             byDomain.sortedByDescending { it.lastUsedAt }.map { it to "domain" } +
             mismatched.sortedByDescending { it.lastUsedAt }.map { it to CERT_MISMATCH }
@@ -165,6 +202,7 @@ object VaultApi {
 
     /** 关联 App / 网址；带上 App 当前的证书（取不到就不记） */
     fun bind(e: VaultEntry, target: String, domain: String, cert: String? = null) = e.copy(
+        excludedDomains = e.excludedDomains.filterNot {it==host(domain)},
         apps = if (target.isEmpty() || target in e.apps) e.apps else e.apps + target,
         appCerts = if (target.isEmpty() || cert == null) e.appCerts else e.appCerts + (target to cert),
         url = if (e.url.isBlank() && domain.isNotEmpty()) domain else e.url,
