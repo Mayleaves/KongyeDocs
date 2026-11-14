@@ -14,6 +14,7 @@ import kotlinx.serialization.json.*
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -35,9 +36,11 @@ internal class AppUpdates(
 ) {
     companion object {
         const val REPOSITORY="https://github.com/Mayleaves/KongyeDocs"
-        const val API="https://api.github.com/repos/Mayleaves/KongyeDocs/releases/latest"
+        private const val RELEASES_API="https://api.github.com/repos/Mayleaves/KongyeDocs/releases"
+        const val API="$RELEASES_API/latest"
         const val APK_MIME="application/vnd.android.package-archive"
         private const val MAX_APK=100L*1024*1024
+        private const val MAX_HISTORY_PAGE_BYTES=8*1024*1024
         private val versionPattern=Regex("^v?([0-9]+(?:\\.[0-9]+){0,3})$")
         fun version(value: String): List<Long> {
             val text=versionPattern.matchEntire(value.trim())?.groupValues?.get(1) ?: error("发布版本号格式不受支持")
@@ -103,6 +106,60 @@ internal class AppUpdates(
             release
         }
     }
+    suspend fun history(): List<ReleaseHistoryEntry> = withContext(Dispatchers.IO) {
+        val source = RELEASES_API.toHttpUrl()
+        val entries = mutableListOf<ReleaseHistoryEntry>()
+        var page = 1
+        do {
+            coroutineContext.ensureActive()
+            val url = source.newBuilder()
+                .addQueryParameter("per_page", "100")
+                .addQueryParameter("page", page.toString())
+                .build()
+            val request = Request.Builder().url(url)
+                .header("Accept", "application/vnd.github+json")
+                .header("User-Agent", "KongyeDocs")
+                .build()
+            val hasNext = client.newCall(request).execute().use { response ->
+                check(response.request.url.isHttps && response.request.url.host == source.host)
+                when (response.code) {
+                    403, 429 -> error("GitHub 暂时限制了请求，请稍后重试")
+                    else -> check(response.isSuccessful) { "刷新更新历史失败，请稍后重试" }
+                }
+                val output = ByteArrayOutputStream()
+                val input = response.body?.byteStream() ?: error("GitHub 未返回更新历史")
+                val buffer = ByteArray(8192)
+                while (true) {
+                    coroutineContext.ensureActive()
+                    val count = input.read(buffer)
+                    if (count == -1) break
+                    check(output.size() + count <= MAX_HISTORY_PAGE_BYTES)
+                    output.write(buffer, 0, count)
+                }
+                entries += parseHistoryPage(output.toString("UTF-8"))
+                response.headers.values("Link").any { it.contains("; rel=\"next\"") }
+            }
+            page++
+        } while (hasNext)
+        entries
+    }
+
+    internal fun parseHistoryPage(text: String): List<ReleaseHistoryEntry> =
+        Json.parseToJsonElement(text).jsonArray.mapNotNull { element ->
+            val release = element.jsonObject
+            if (release["draft"]?.jsonPrimitive?.booleanOrNull == true ||
+                release["prerelease"]?.jsonPrimitive?.booleanOrNull == true
+            ) return@mapNotNull null
+            val tag = release["tag_name"]?.jsonPrimitive?.contentOrNull.orEmpty()
+            val version = versionPattern.matchEntire(tag)?.groupValues?.get(1) ?: return@mapNotNull null
+            if (version.split('.').any { it.toLongOrNull() == null }) return@mapNotNull null
+            ReleaseHistoryEntry(
+                version = version,
+                date = release["published_at"]?.jsonPrimitive?.contentOrNull.orEmpty().substringBefore('T'),
+                notes = release["body"]?.jsonPrimitive?.contentOrNull.orEmpty().trim(),
+            )
+        }
+
     internal fun validateApk(context: Context,file: File,release: AppRelease,current: InstalledApp = currentApp(context)) {
         require(file.isFile && file.length()==release.size) { "APK 下载不完整" }
         release.sha256?.let { expected ->

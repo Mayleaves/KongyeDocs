@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
@@ -68,9 +69,10 @@ internal fun DialogButtons(
     confirmColor: Color,
     confirmEnabled: Boolean = true,
     onCancel: (() -> Unit)?,
+    topSpacing: Dp = 20.dp,
     onConfirm: () -> Unit,
 ) {
-    Spacer(Modifier.height(20.dp))
+    Spacer(Modifier.height(topSpacing))
     HLine()
     Row(Modifier.fillMaxWidth().height(50.dp)) {
         if (onCancel != null) {
@@ -154,7 +156,7 @@ fun ConfirmDialog(
                 fontSize = 14.sp, color = Kongye.Text2, textAlign = TextAlign.Center, lineHeight = 21.sp,
             )
         }
-        DialogButtons(confirmText, if (danger) Kongye.Danger else Kongye.Primary, true, onDismiss, onConfirm)
+        DialogButtons(confirmText, if (danger) Kongye.Danger else Kongye.Primary, true, onDismiss, onConfirm = onConfirm)
     }
 }
 
@@ -164,7 +166,7 @@ fun NoticeDialog(title: String, message: String, onDismiss: () -> Unit) {
     DialogFrame(onDismiss) {
         DialogTitle(title)
         Text(message, Modifier.fillMaxWidth().padding(horizontal = 24.dp), fontSize = 14.sp, color = Kongye.Text2, lineHeight = 22.sp)
-        DialogButtons("知道了", Kongye.Primary, true, null, onDismiss)
+        DialogButtons("知道了", Kongye.Primary, true, null, onConfirm = onDismiss)
     }
 }
 
@@ -179,6 +181,6 @@ fun InfoDialog(title: String, rows: List<Pair<String, String>>, onDismiss: () ->
                 Text(v, Modifier.weight(1f), fontSize = 14.sp, color = Kongye.Text, textAlign = TextAlign.End)
             }
         }
-        DialogButtons("知道了", Kongye.Primary, true, null, onDismiss)
+        DialogButtons("知道了", Kongye.Primary, true, null, onConfirm = onDismiss)
     }
 }

@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -30,16 +31,20 @@ import com.kongye.docs.data.*
 import com.kongye.docs.ui.AppState
 import com.kongye.docs.ui.components.*
 import com.kongye.docs.ui.theme.Kongye
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 @Composable
 internal fun UpdateHistoryScreen() {
     val context=LocalContext.current
     val current=remember { AppUpdates.installed(context).version }
+    val scope=rememberCoroutineScope()
     var entries by remember { mutableStateOf<List<ReleaseHistoryEntry>?>(null) }
     var selected by remember { mutableStateOf<ReleaseHistoryEntry?>(null) }
-    var failure by remember { mutableStateOf(false) }
+    var reading by remember { mutableStateOf(true) }
+    var refreshing by remember { mutableStateOf(false) }
     var query by rememberSaveable { mutableStateOf("") }
     var page by rememberSaveable { mutableIntStateOf(0) }
     val filtered=remember(entries,query) { entries.orEmpty().filter { entry ->
@@ -51,19 +56,48 @@ internal fun UpdateHistoryScreen() {
     val focus=LocalFocusManager.current
     val keyboard=LocalSoftwareKeyboardController.current
     fun finishSearch() { focus.clearFocus();keyboard?.hide() }
+    fun refresh() {
+        if (reading || refreshing) return
+        refreshing = true
+        scope.launch {
+            try {
+                val published = AppUpdates().history()
+                entries = withContext(Dispatchers.IO) { ReleaseHistory.save(context, published) }
+                page = 0
+                listState.requestScrollToItem(0)
+                Toast.show("已从 GitHub 刷新")
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                Toast.show("无法从 GitHub 刷新，请重试")
+            } finally {
+                refreshing = false
+            }
+        }
+    }
     LaunchedEffect(currentPage,query) { listState.scrollToItem(0) }
     LaunchedEffect(Unit) {
         entries=withContext(Dispatchers.IO) { runCatching { ReleaseHistory.read(context) }.getOrNull() }
-        failure=entries==null
+        reading=false
     }
     BackHandler(selected!=null) { selected=null }
     Column(Modifier.fillMaxSize().background(Kongye.Surface)) {
-        TopBar(title=selected?.let { "v${it.version} 更新详情" } ?: "更新历史",onBack={ if(selected!=null) selected=null else AppState.pop() },divider=true)
+        TopBar(title=selected?.let { "v${it.version} 更新详情" } ?: "更新历史",onBack={ if(selected!=null) selected=null else AppState.pop() },divider=true) {
+            if (selected == null) {
+                if (refreshing) {
+                    Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
+                        CircularProgressIndicator(Modifier.size(18.dp), color = Kongye.Primary, strokeWidth = 2.dp)
+                    }
+                } else {
+                    IconBtn(KongyeIcons.Refresh, ::refresh, enabled = !reading, description = "从 GitHub 刷新更新历史")
+                }
+            }
+        }
         val detail=selected
         if(detail!=null) Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).navigationBarsPadding().padding(20.dp)) {
             Text(detail.date+if(detail.version==current) " · 当前版本" else "",color=Kongye.Text3,fontSize=13.sp,modifier=Modifier.padding(bottom=16.dp))
             SelectionContainer { MarkdownText(detail.notes) }
-        } else if(entries==null) Text(if(failure) "暂时无法读取更新记录" else "正在读取…",Modifier.padding(20.dp),color=Kongye.Text3)
+        } else if(entries==null) Text(if(reading || refreshing) "正在读取…" else "暂时无法读取更新记录",Modifier.padding(20.dp),color=Kongye.Text3)
         else {
             Row(Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=12.dp).background(Kongye.Field,androidx.compose.foundation.shape.RoundedCornerShape(10.dp)).padding(horizontal=12.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically) {
                 BasicTextField(query,{ query=it;page=0 },singleLine=true,textStyle=TextStyle(color=Kongye.Text,fontSize=15.sp),cursorBrush=SolidColor(Kongye.Primary),

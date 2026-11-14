@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
@@ -105,7 +106,7 @@ internal fun UpdateEntries(client: AppUpdates = remember { AppUpdates() }, betwe
                     release=latest
                     if(AppUpdates.compare(latest.version,current.version)>0) stage="available"
                     else {
-                        message=if(AppUpdates.compare(latest.version,current.version)==0) "当前已经是最新版本（v${current.version}）。" else "本机为 v${current.version}，GitHub 最新发布为 v${latest.version}，无需更新。"
+                        message=if(AppUpdates.compare(latest.version,current.version)==0) "已是最新版本 · v${current.version}" else "本机为 v${current.version}，GitHub 最新发布为 v${latest.version}，无需更新。"
                         stage="latest"
                     }
                 } catch(cancel: CancellationException) { throw cancel }
@@ -120,11 +121,28 @@ internal fun UpdateEntries(client: AppUpdates = remember { AppUpdates() }, betwe
                 if(stage=="available") ReleaseNotes.summary(release?.notes.orEmpty()) else message,
                 Modifier.fillMaxWidth().padding(horizontal=24.dp),fontSize=14.sp,color=Kongye.Text2,
                 textAlign=if(stage=="available") TextAlign.Center else TextAlign.Start,
-                lineHeight=if(stage=="available") 21.sp else 22.sp,
+                lineHeight=21.sp,
             )
-            Text("查看历史更新",Modifier.padding(horizontal=24.dp).padding(top=14.dp).clickable { stage="idle"; AppState.push(Screen.UpdateHistory) },color=Kongye.Link,fontSize=14.sp)
-            DialogButtons(if(stage=="available") "下载更新" else "知道了",Kongye.Primary,onCancel=if(stage=="available") ({stage="idle"}) else null) {
-                if(stage=="available") download() else stage="idle"
+            Box(
+                Modifier.align(Alignment.Start)
+                    .padding(start = 24.dp, end = 24.dp, top = 2.dp)
+                    .heightIn(min = 30.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .clickable {
+                        stage = "idle"
+                        AppState.push(Screen.UpdateHistory)
+                    },
+                contentAlignment = Alignment.CenterStart,
+            ) {
+                Text("查看更新历史", color = Kongye.Link, fontSize = 14.sp)
+            }
+            DialogButtons(
+                if (stage == "available") "下载更新" else "知道了",
+                Kongye.Primary,
+                onCancel = if (stage == "available") ({ stage = "idle" }) else null,
+                topSpacing = 8.dp,
+            ) {
+                if (stage == "available") download() else stage = "idle"
             }
         }
         "download" -> DialogFrame(onDismiss={job?.cancel();stage="idle"}) {
