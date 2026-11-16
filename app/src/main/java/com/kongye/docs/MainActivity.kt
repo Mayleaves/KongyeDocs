@@ -20,6 +20,7 @@ import com.kongye.docs.data.Converter
 import com.kongye.docs.data.Repository
 import com.kongye.docs.data.Settings
 import com.kongye.docs.data.ThemeMode
+import com.kongye.docs.data.UpdateStatus
 import com.kongye.docs.ui.AppState
 import com.kongye.docs.ui.HomeSub
 import com.kongye.docs.ui.KongyeApp
@@ -28,11 +29,14 @@ import com.kongye.docs.ui.components.Toast
 import com.kongye.docs.ui.editor.EditorSession
 import com.kongye.docs.ui.theme.Kongye
 import com.kongye.docs.ui.theme.KongyeTheme
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.Calendar
 
 class MainActivity : ComponentActivity() {
+    private var updateCheck: Job? = null
     private var appliedDark: Boolean? = null
     private var appliedNightMode = -1
 
@@ -106,6 +110,17 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         AutoBackup.runIfDue(this)
+        if (updateCheck?.isActive != true) {
+            updateCheck = lifecycleScope.launch {
+                try {
+                    UpdateStatus.check(this@MainActivity)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Keep the last known availability when the network is unavailable.
+                }
+            }
+        }
     }
 
     override fun onStop() {

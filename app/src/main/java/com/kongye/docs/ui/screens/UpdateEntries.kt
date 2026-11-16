@@ -23,11 +23,11 @@ import androidx.compose.ui.unit.sp
 import com.kongye.docs.data.AppRelease
 import com.kongye.docs.data.AppUpdates
 import com.kongye.docs.data.ReleaseNotes
+import com.kongye.docs.data.UpdateStatus
 import com.kongye.docs.ui.AppState
 import com.kongye.docs.ui.Screen
 import com.kongye.docs.ui.components.*
 import com.kongye.docs.ui.theme.Kongye
-import com.kongye.docs.util.Share
 import com.kongye.docs.util.sizeText
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -60,6 +60,7 @@ internal fun DownloadBar(progress: Float, size: Long) {
 internal fun UpdateEntries(client: AppUpdates = remember { AppUpdates() }, between: @Composable () -> Unit = {}) {
     val context=LocalContext.current
     val scope=rememberCoroutineScope()
+    val availableVersion by UpdateStatus.availableVersion.collectAsState()
     var stage by remember { mutableStateOf("idle") }
     var release by remember { mutableStateOf<AppRelease?>(null) }
     var apk by remember { mutableStateOf<File?>(null) }
@@ -93,15 +94,21 @@ internal fun UpdateEntries(client: AppUpdates = remember { AppUpdates() }, betwe
         }
     }
     SettingsGroup {
-        SettingRow("GitHub","Mayleaves/KongyeDocs") { if(!Share.openUrl(context,AppUpdates.REPOSITORY)) Toast.show("没有可用的浏览器") }
         between()
-        SettingRow("更新历史","") { AppState.push(Screen.UpdateHistory) }
-        SettingRow("检查更新",if(stage=="checking") "正在检查…" else "v"+AppUpdates.installed(context).version,last=true) {
+        SettingRow(
+            "检查更新",
+            when {
+                stage == "checking" -> "正在检查…"
+                availableVersion != null -> "新版本 v$availableVersion"
+                else -> "v" + AppUpdates.installed(context).version
+            },
+            valueColor = if (availableVersion != null && stage != "checking") Kongye.Primary else Kongye.Sub,
+        ) {
             if(stage=="checking" || stage=="download") return@SettingRow
             stage="checking"
             job=scope.launch {
                 try {
-                    val latest=client.latest(context)
+                    val latest=UpdateStatus.check(context, client)
                     val current=AppUpdates.installed(context)
                     release=latest
                     if(AppUpdates.compare(latest.version,current.version)>0) stage="available"
@@ -113,6 +120,7 @@ internal fun UpdateEntries(client: AppUpdates = remember { AppUpdates() }, betwe
                 catch(failure: Exception) { error(failure) }
             }
         }
+        SettingRow("更新历史", "", last = true) { AppState.push(Screen.UpdateHistory) }
     }
     when(stage) {
         "available","latest" -> DialogFrame(onDismiss={stage="idle"}) {

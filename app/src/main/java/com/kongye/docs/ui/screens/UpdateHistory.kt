@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Icon
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -31,6 +32,7 @@ import com.kongye.docs.data.*
 import com.kongye.docs.ui.AppState
 import com.kongye.docs.ui.components.*
 import com.kongye.docs.ui.theme.Kongye
+import com.kongye.docs.util.Share
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -84,6 +86,13 @@ internal fun UpdateHistoryScreen() {
     Column(Modifier.fillMaxSize().background(Kongye.Surface)) {
         TopBar(title=selected?.let { "v${it.version} 更新详情" } ?: "更新历史",onBack={ if(selected!=null) selected=null else AppState.pop() },divider=true) {
             if (selected == null) {
+                IconBtn(
+                    KongyeIcons.GitHub,
+                    {
+                        if (!Share.openUrl(context, AppUpdates.REPOSITORY)) Toast.show("没有可用的浏览器")
+                    },
+                    description = "GitHub",
+                )
                 if (refreshing) {
                     Box(Modifier.size(40.dp), contentAlignment = Alignment.Center) {
                         CircularProgressIndicator(Modifier.size(18.dp), color = Kongye.Primary, strokeWidth = 2.dp)
@@ -100,6 +109,8 @@ internal fun UpdateHistoryScreen() {
         } else if(entries==null) Text(if(reading || refreshing) "正在读取…" else "暂时无法读取更新记录",Modifier.padding(20.dp),color=Kongye.Text3)
         else {
             Row(Modifier.fillMaxWidth().padding(horizontal=20.dp,vertical=12.dp).background(Kongye.Field,androidx.compose.foundation.shape.RoundedCornerShape(10.dp)).padding(horizontal=12.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically) {
+                Icon(KongyeIcons.Search, null, Modifier.size(18.dp), tint = Kongye.Icon2)
+                Spacer(Modifier.width(8.dp))
                 BasicTextField(query,{ query=it;page=0 },singleLine=true,textStyle=TextStyle(color=Kongye.Text,fontSize=15.sp),cursorBrush=SolidColor(Kongye.Primary),
                     modifier=Modifier.weight(1f).semantics { contentDescription="搜索更新历史" },
                     decorationBox={ inner -> Box { if(query.isEmpty()) Text("搜索版本、日期或更新内容",color=Kongye.Text3,fontSize=15.sp);inner() } })

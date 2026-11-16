@@ -91,6 +91,16 @@ object KongyeIcons {
     val StarFilled = icon("starFilled") { f(STAR); s(STAR) }
     val User = icon("user") { s(circle(12f, 8.5f, 3.8f)); s("M4.5 20c.8-3.6 3.9-5.8 7.5-5.8s6.7 2.2 7.5 5.8") }
     val UserFilled = icon("userFilled") { f(circle(12f, 8.5f, 3.8f)); s(circle(12f, 8.5f, 3.8f)); f("M4.5 20c.8-3.6 3.9-5.8 7.5-5.8s6.7 2.2 7.5 5.8z"); s("M4.5 20c.8-3.6 3.9-5.8 7.5-5.8s6.7 2.2 7.5 5.8z") }
+    val GitHub = icon("github") {
+        s(
+            "M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61" +
+                "c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77" +
+                " 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0" +
+                "C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77" +
+                "a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7" +
+                "A3.37 3.37 0 0 0 9 18.13V22"
+        )
+    }
     val Search = icon("search") { s(circle(11f, 11f, 6.5f)); s("M16 16l4.5 4.5") }
     val Back = icon("back", 1.9f) { s("M15 5l-7 7 7 7") }
     val ChevronRight = icon("chevronRight") { s("M9.5 6l6 6-6 6") }
