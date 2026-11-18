@@ -303,7 +303,7 @@ fun LocalBackupScreen() {
 
 // ---------------- 云端备份（WebDAV） ----------------
 
-private enum class DavField { URL, USER, PASSWORD, DIR }
+private enum class DavField { URL, USER, PASSWORD }
 
 /** 云端备份：WebDAV 服务器设置，自动备份、手动备份到云端，从云端的备份恢复 */
 @Composable
@@ -325,7 +325,7 @@ fun CloudBackupScreen() {
     var reloadKey by remember { mutableStateOf(0) }
     val configured = s.davUrl.isNotBlank()
 
-    LaunchedEffect(s.davUrl, s.davUser, s.davPassword, s.davDir, s.lastDav, reloadKey) {
+    LaunchedEffect(s.davUrl, s.davUser, s.davPassword, s.lastDav, reloadKey) {
         if (!configured) {
             backups = emptyList()
             return@LaunchedEffect
@@ -353,7 +353,6 @@ fun CloudBackupScreen() {
                 SettingRow("账号", s.davUser.ifBlank { "未填写" }) { editing = DavField.USER }
                 SettingRow("密码", if (s.davPassword.isEmpty()) "未填写" else "••••••") { editing = DavField.PASSWORD }
                 SwitchRow("允许局域网 HTTP（明文）", s.allowInsecureDav) { on -> Settings.updateBackup { it.copy(allowInsecureDav = on) } }
-                SettingRow("备份目录", s.davDir.ifBlank { "（根目录）" }) { editing = DavField.DIR }
                 SettingRow(
                     "测试连接", davTest ?: "", last = true, showChevron = false,
                     valueColor = when {
@@ -452,9 +451,6 @@ fun CloudBackupScreen() {
             }
             DavField.PASSWORD -> InputDialog("密码", s.davPassword, "应用密码", allowEmpty = true, password = true, onDismiss = close) { v ->
                 close(); davTest = null; Settings.updateBackup { it.copy(davPassword = v, davError = "") }
-            }
-            DavField.DIR -> InputDialog("备份目录", s.davDir, "留空则放在根目录", allowEmpty = true, onDismiss = close) { v ->
-                close(); Settings.updateBackup { it.copy(davDir = v.trim().trim('/')) }
             }
         }
     }

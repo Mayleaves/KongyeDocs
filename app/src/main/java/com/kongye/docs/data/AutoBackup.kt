@@ -29,7 +29,7 @@ import java.io.InputStream
 import java.io.ByteArrayOutputStream
 
 /** 本地文件夹或云端目录里的一个备份文件；id 是本地文档 id 或云端文件名 */
-data class BackupEntry(val name: String, val time: Long, val size: Long, val auto: Boolean, val id: String)
+data class BackupEntry(val name: String, val time: Long, val size: Long, val auto: Boolean, val id: String, val davDirectory: String? = null)
 
 /**
  * 备份：本地文件夹（系统文件选择器授权的目录）和云端（WebDAV）。
@@ -37,6 +37,7 @@ data class BackupEntry(val name: String, val time: Long, val size: Long, val aut
  * 自动备份文件名为“空叶文档自动备份-时间”，到期只清理这类文件，手动备份（“空叶文档备份-时间”）不受影响。
  */
 object AutoBackup {
+    private const val DAV_DIRECTORY = "KongyeDocs"
     const val PREFIX = "空叶文档自动备份-"
     const val MANUAL_PREFIX = "空叶文档备份-"
     private const val HOUR = 60 * 60 * 1000L
@@ -235,15 +236,24 @@ object AutoBackup {
         return url
     }
 
-    private fun dirSegments(s: BackupSettings) = s.davDir.split('/').map { it.trim() }.filter { it.isNotEmpty() }
-
-    private fun dirUrl(s: BackupSettings, depth: Int = Int.MAX_VALUE): HttpUrl {
-        val b = rootUrl(s).newBuilder()
-        dirSegments(s).take(depth).forEach { b.addPathSegment(it) }
-        return b.addPathSegment("").build()
+    private fun dirUrl(s: BackupSettings, directory: String = DAV_DIRECTORY): HttpUrl {
+        val builder = rootUrl(s).newBuilder()
+        directory.split('/').map { it.trim() }.filter { it.isNotEmpty() }.forEach { builder.addPathSegment(it) }
+        return builder.addPathSegment("").build()
     }
 
-    private fun fileUrl(s: BackupSettings, name: String) = dirUrl(s).newBuilder().addPathSegment(name).build()
+    private fun fileUrl(s: BackupSettings, name: String, directory: String = DAV_DIRECTORY) =
+        dirUrl(s, directory).newBuilder().addPathSegment(name).build()
+
+    private fun backupId(name: String, directory: String) =
+        if (directory == DAV_DIRECTORY) name else "$directory/$name"
+
+    private fun entryDirectory(s: BackupSettings, entry: BackupEntry): String {
+        val directory = entry.davDirectory ?: DAV_DIRECTORY
+        require(directory == DAV_DIRECTORY || directory == s.davDir) { "非法云端备份目录" }
+        require(isBackupName(entry.name) && entry.id == backupId(entry.name, directory)) { "非法云端备份文件" }
+        return directory
+    }
 
     private fun auth(s: BackupSettings) = Credentials.basic(s.davUser, s.davPassword, Charsets.UTF_8)
 
@@ -271,12 +281,10 @@ object AutoBackup {
         }.fold({ "连接成功" }, { "连接失败：" + describe(it) })
     }
 
-    /** 逐级创建备份目录（已存在时服务器返回 405，忽略），再上传 */
+    /** 自动创建固定的 KongyeDocs 目录，再上传并校验。 */
     private fun putDav(s: BackupSettings, name: String, data: String) {
-        for (depth in 1..dirSegments(s).size) {
-            client.newCall(request(dirUrl(s, depth), s).method("MKCOL", null).build()).execute().use { r ->
-                if (r.code == 401) throw httpError(401)
-            }
+        client.newCall(request(dirUrl(s), s).method("MKCOL", null).build()).execute().use { r ->
+            if (!r.isSuccessful && r.code != 405) throw httpError(r.code)
         }
         client.newCall(request(fileUrl(s, name), s).put(data.toRequestBody("application/json".toMediaType())).build()).execute().use { r ->
             if (!r.isSuccessful) throw httpError(r.code)
@@ -305,8 +313,8 @@ object AutoBackup {
         Regex("<(?:[A-Za-z0-9]+:)?$name\\b[^>]*>([^<]*)</(?:[A-Za-z0-9]+:)?$name>").find(block)?.groupValues?.get(1)?.trim()
 
     /** 列出备份目录里的备份文件；目录还不存在时返回空 */
-    private fun queryDav(s: BackupSettings): List<BackupEntry> {
-        val body = client.newCall(request(dirUrl(s), s).header("Depth", "1").method("PROPFIND", propfindBody()).build()).execute().use { r ->
+    private fun queryDav(s: BackupSettings, directory: String = DAV_DIRECTORY): List<BackupEntry> {
+        val body = client.newCall(request(dirUrl(s, directory), s).header("Depth", "1").method("PROPFIND", propfindBody()).build()).execute().use { r ->
             if (r.code == 404) return emptyList()
             if (r.code != 207 && !r.isSuccessful) throw httpError(r.code)
             r.body?.string().orEmpty()
@@ -317,7 +325,7 @@ object AutoBackup {
                 val name = runCatching { URLDecoder.decode(href, "UTF-8") }.getOrDefault(href).trimEnd('/').substringAfterLast('/')
                 if (!isBackupName(name)) return@mapNotNull null
                 val modified = tag(m.value, "getlastmodified")?.let { runCatching { synchronized(httpDate) { httpDate.parse(it)?.time } }.getOrNull() }
-                BackupEntry(name, nameTime(name) ?: modified ?: 0L, tag(m.value, "getcontentlength")?.toLongOrNull() ?: 0L, name.startsWith(PREFIX), name)
+                BackupEntry(name, nameTime(name) ?: modified ?: 0L, tag(m.value, "getcontentlength")?.toLongOrNull() ?: 0L, name.startsWith(PREFIX), backupId(name, directory), directory)
             }
             .sortedByDescending { it.time }
             .toList()
@@ -332,11 +340,16 @@ object AutoBackup {
         }
     }
 
-    suspend fun listDav(): List<BackupEntry> = withContext(Dispatchers.IO) { queryDav(Settings.value.backup) }
+    suspend fun listDav(): List<BackupEntry> = withContext(Dispatchers.IO) {
+        val settings = Settings.value.backup
+        val current = queryDav(settings)
+        val previous = if (settings.davDir != DAV_DIRECTORY) queryDav(settings, settings.davDir) else emptyList()
+        (current + previous).sortedByDescending { it.time }
+    }
 
     suspend fun readDav(entry: BackupEntry): String = withContext(Dispatchers.IO) {
         val s = Settings.value.backup
-        client.newCall(request(fileUrl(s, entry.name), s).get().build()).execute().use { r ->
+        client.newCall(request(fileUrl(s, entry.name, entryDirectory(s, entry)), s).get().build()).execute().use { r ->
             if (!r.isSuccessful) throw httpError(r.code)
             r.body?.byteStream()?.use { readLimited(it) } ?: throw BackupError("下载的备份是空的")
         }
@@ -345,13 +358,13 @@ object AutoBackup {
     /** WebDAV DELETE 实际移除远端文件；不接受目录或任意文件名。 */
     suspend fun deleteDav(entry: BackupEntry, settings: BackupSettings = Settings.value.backup) = withContext(Dispatchers.IO) {
         mutex.withLock {
-            require(isBackupName(entry.name) && entry.id == entry.name) { "非法云端备份文件" }
-            val found = queryDav(settings).firstOrNull { it.name == entry.name }
+            val directory = entryDirectory(settings, entry)
+            val found = queryDav(settings, directory).firstOrNull { it.id == entry.id }
             if (found != null) {
-                client.newCall(request(fileUrl(settings, found.name), settings).delete().build()).execute().use { response ->
+                client.newCall(request(fileUrl(settings, found.name, directory), settings).delete().build()).execute().use { response ->
                     if (!response.isSuccessful && response.code != 404) throw httpError(response.code)
                 }
-                check(queryDav(settings).none { it.name == found.name }) { "云端仍返回此备份，请刷新后重试" }
+                check(queryDav(settings, directory).none { it.id == found.id }) { "云端仍返回此备份，请刷新后重试" }
             }
         }
     }

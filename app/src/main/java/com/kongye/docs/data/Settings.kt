@@ -33,7 +33,8 @@ data class BackupSettings(
     val davUrl: String = "",
     val davUser: String = "",
     val davPassword: String = "",
-    val davDir: String = "空叶文档备份",
+    /** 旧版本保存的目录，仅用于读取和管理已有备份；新备份固定存入 KongyeDocs。 */
+    val davDir: String = "KongyeDocs",
     val lastDav: Long = 0L,
     val davError: String = "",
     val allowInsecureDav: Boolean = false,
