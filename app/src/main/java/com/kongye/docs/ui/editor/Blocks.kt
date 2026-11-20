@@ -103,6 +103,7 @@ import kotlin.math.max
 
 private val lineStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.None)
 internal val LocalKeepEditorPanel=staticCompositionLocalOf { false }
+internal val LocalEditorTextTap=staticCompositionLocalOf<() -> Unit> { {} }
 
 fun blockTextStyle(type: BlockType): TextStyle = when (type) {
     BlockType.H1 -> TextStyle(fontSize = 24.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold)
@@ -338,14 +339,16 @@ internal fun Modifier.textGestures(
     intercept: (Offset) -> (() -> Unit)? = { null },
 ): Modifier {
     val keyboard = androidx.compose.ui.platform.LocalSoftwareKeyboardController.current
-    val keepPanel=LocalKeepEditorPanel.current
-    return pointerInput(key,keepPanel) {
+    val keepPanelState by androidx.compose.runtime.rememberUpdatedState(LocalKeepEditorPanel.current)
+    val onPanelTextTap by androidx.compose.runtime.rememberUpdatedState(LocalEditorTextTap.current)
+    return pointerInput(editor,key) {
     coroutineScope {
         val selectionScope=this
         var lastUp=0L
         var lastPos=Offset.Zero
         awaitEachGesture {
             val down=awaitFirstDown(requireUnconsumed=false,pass=PointerEventPass.Initial)
+            val keepPanel=keepPanelState
             editor.cursorNavigation.reset()
             if(down.isConsumed) return@awaitEachGesture
             // The document handles positioning while a tool is open. Letting the
@@ -405,7 +408,7 @@ internal fun Modifier.textGestures(
                 if (!editor.findMode) layout()?.let { l ->
                     val offset = l.getOffsetForPosition(down.position).coerceIn(minOffset, l.layoutInput.text.length)
                     editor.placeCaret(SelectionPoint(key, offset), handle = true, retainInputFocus=keepPanel)
-                    if(!keepPanel) keyboard?.show()
+                    if(keepPanel) onPanelTextTap() else keyboard?.show()
                 }
             }
             else lastUp=0L

@@ -23,6 +23,9 @@ import androidx.compose.ui.platform.InterceptPlatformTextInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.core.view.inputmethod.EditorInfoCompat
+import androidx.core.view.inputmethod.InputConnectionCompat
+import androidx.core.view.inputmethod.InputContentInfoCompat
+import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.flow.collectLatest
 import androidx.compose.ui.platform.PlatformTextInputInterceptor
 import androidx.compose.ui.platform.PlatformTextInputMethodRequest
@@ -31,6 +34,11 @@ import androidx.compose.ui.platform.PlatformTextInputMethodRequest
 internal fun DocumentInput(editor: EditorState, content: @Composable () -> Unit) {
     val context=LocalContext.current
     val view=LocalView.current
+    val clipboardScope=rememberCoroutineScope()
+    DisposableEffect(editor,clipboardScope) {
+        DocumentClipboard.attach(editor,clipboardScope)
+        onDispose { DocumentClipboard.detach(editor) }
+    }
     val ime=remember(editor,view) { DocumentIme(editor,view) }
     LaunchedEffect(ime) {
         snapshotFlow { ime.snapshot() to editor.inputEpoch }.collectLatest { (_,epoch) ->
@@ -69,7 +77,11 @@ internal fun DocumentInput(editor: EditorState, content: @Composable () -> Unit)
                     EditorInfoCompat.setInitialSurroundingText(info,state.text)
                     view.post { ime.notifyIme() }
                 }
-                DocumentInputConnection(target,context,editor,documentInput,ime,info.extras?.getString("com.kongye.input.BLOCK"))
+                val connection=DocumentInputConnection(target,context,editor,documentInput,ime,info.extras?.getString("com.kongye.input.BLOCK"))
+                if(documentInput) {
+                    EditorInfoCompat.setContentMimeTypes(info,arrayOf("image/*"))
+                    InputConnectionCompat.createWrapper(connection,info) { content,flags,_ -> connection.receiveImage(content,flags) }
+                } else connection
             })
         }
     }
@@ -141,6 +153,16 @@ internal class DocumentInputConnection(target: InputConnection, private val cont
             if(bodyInput()) ime?.notifyIme()
             result
         }
+    }
+    internal fun receiveImage(content: InputContentInfoCompat,flags: Int): Boolean = main {
+        if(!bodyInput() || !content.description.hasMimeType("image/*")) return@main false
+        val granted=flags and InputConnectionCompat.INPUT_CONTENT_GRANT_READ_URI_PERMISSION!=0
+        if(granted && runCatching { content.requestPermission() }.isFailure) return@main false
+        val release={ if(granted) runCatching { content.releasePermission() }; Unit }
+        ime?.finishComposition()
+        val accepted=DocumentClipboard.pasteImages(editor,listOf(content.contentUri),release)
+        if(!accepted) release()
+        accepted
     }
     override fun performPrivateCommand(action: String?, data: Bundle?): Boolean = main {
         trace { "performPrivateCommand $action" }

@@ -83,6 +83,9 @@ fun EditorToolbar(
     onCustomize: () -> Unit,
     onUndo: () -> Unit = { editor.undo() },
     onRedo: () -> Unit = { editor.redo() },
+    panelPinned: Boolean = false,
+    onPinPanel: () -> Unit = {},
+    onShowKeyboard: () -> Unit = {},
 ) {
     val b = editor.focused?.takeUnless { it.type==BlockType.IMAGE }
     val order by Repository.toolbar.collectAsState()
@@ -108,7 +111,11 @@ fun EditorToolbar(
             }
             if (editor.focusedCell != null) TbBtn(KongyeIcons.TableEdit, active = true, onClick = onTableMenu)
             Box(Modifier.width(0.6.dp).height(22.dp).background(Kongye.Line2))
-            TbBtn(KongyeIcons.KeyboardHide, onClick = onHideKeyboard)
+            if(panel!=null) {
+                TbBtn(if(panelPinned) KongyeIcons.PinFilled else KongyeIcons.Pin, active=panelPinned,
+                    description=if(panelPinned) "取消固定面板" else "固定面板", onClick=onPinPanel)
+                TbBtn(KongyeIcons.Keyboard, description="返回键盘", onClick=onShowKeyboard)
+            } else TbBtn(KongyeIcons.KeyboardHide, description="收起键盘", onClick=onHideKeyboard)
         }
     }
 }

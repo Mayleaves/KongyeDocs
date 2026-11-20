@@ -183,7 +183,7 @@ internal class DocumentIme(private val editor: EditorState, private val view: Vi
         val low = minOf(state.start,state.end); val high = maxOf(state.start,state.end)
         val focused=editor.focused
         if(before==1 && after==0 && low==high && focused?.value?.selection==TextRange(1) && focused.value.composition==null) {
-            // Preserve the editor's existing list/indent/code backspace semantics.
+            // Use one boundary-delete rule for native, hardware and document IME calls.
             editor.onValueChange(focused,TextFieldValue(focused.text,TextRange.Zero))
             editor.invalidateImeCallbacks()
             return true

@@ -163,6 +163,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
     val items by Repository.items.collectAsState()
     val item = items.firstOrNull { it.id == docId }
     var panel by remember { mutableStateOf<EdPanel?>(null) }
+    var panelPinned by rememberSaveable { mutableStateOf(false) }
     var tocOpen by remember { mutableStateOf(false) }
     var infoOpen by remember { mutableStateOf(false) }
     var tocActive by remember { mutableStateOf<String?>(null) }
@@ -421,13 +422,17 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
     LaunchedEffect(editor.commentView, editor.findMode) { if (editor.commentView != null || editor.findMode) tocOpen = false }
     BackHandler(enabled = tocOpen) { tocOpen = false }
 
+    fun returnToKeyboard() {
+        returningToKeyboard=true
+        hidingKeyboardForPanel=false
+        editor.focused?.let { editor.requestFocus(it,it.value.selection.end) }
+        keyboard?.show()
+    }
+
     fun toggleToolPanel(p: EdPanel) {
         if(panel==p) {
             // Keep the slot until the keyboard is fully back; the toolbar stays still.
-            returningToKeyboard=true
-            hidingKeyboardForPanel=false
-            editor.focused?.let { editor.requestFocus(it,it.value.selection.end) }
-            keyboard?.show()
+            returnToKeyboard()
         } else {
             if(panel==null) {
                 val current=with(density) { imeInsets.getBottom(this).toDp() }-navBottom
@@ -440,7 +445,10 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
         }
     }
 
-    androidx.compose.runtime.CompositionLocalProvider(LocalKeepEditorPanel provides (panel!=null && !returningToKeyboard && editor.commentDraft==null)) {
+    androidx.compose.runtime.CompositionLocalProvider(
+        LocalKeepEditorPanel provides (panel!=null && !returningToKeyboard && editor.commentDraft==null),
+        LocalEditorTextTap provides { if(!panelPinned && panel!=null) returnToKeyboard() },
+    ) {
     Column(Modifier.fillMaxSize().background(Kongye.Surface)) {
         // ---------- 顶栏 ----------
         if (editor.findMode) {
@@ -583,6 +591,12 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                 editor = editor,
                 panel = panel,
                 onPanel = ::toggleToolPanel,
+                panelPinned = panelPinned,
+                onPinPanel = {
+                    panelPinned=!panelPinned
+                    Toast.show(if(panelPinned) "已固定面板，点段落可连续调整格式" else "已取消固定，点正文可输入")
+                },
+                onShowKeyboard = ::returnToKeyboard,
                 onUndo = { editor.undo(imeVisible) },
                 onRedo = { editor.redo(imeVisible) },
                 onComment = {

@@ -31,7 +31,7 @@ import kotlin.math.max
 
 /**
  * 每个文本块的输入框开头放一个零宽字符作为“哨兵”：
- * 软键盘在块首按退格时会删掉它，由此可以可靠地识别“块首退格”（合并到上一块 / 取消列表格式）。
+ * 软键盘在块首按退格时会删掉它，由此可以可靠地识别“块首退格”（删除前面的段落边界）。
  * 输入框内的偏移量都包含这个哨兵，所以 spans 也比存储的偏移量大 1。
  */
 const val ZWS = "​"
@@ -574,10 +574,9 @@ class EditorState(val docId: String, val isNew: Boolean) {
         val idx = blocks.indexOf(b)
         if (idx < 0) return
         val image=blocks.getOrNull(idx-1)?.takeIf { it.type==BlockType.IMAGE }
-        if(image!=null && b.type==BlockType.TEXT && b.indent==0 && !b.firstIndent && b.align==Align.START) {
+        if(image!=null) {
             if(b.text.isEmpty()) {
                 checkpoint()
-                // Transfer the live input session before removing its empty line.
                 runCatching { image.focus.requestFocus() }
                 blocks.removeAt(idx)
                 changed()
@@ -589,47 +588,23 @@ class EditorState(val docId: String, val isNew: Boolean) {
             keyboardSelection.reveal(imageCaret!!)
             return
         }
+        // Backspace removes the paragraph boundary, including formatted blocks.
+        // The first block has no preceding newline, so leave its format intact.
+        if(idx==0) return
         checkpoint()
-        when {
-            b.type == BlockType.CODE -> {
-                val lines = b.text.split('\n')
-                b.type = BlockType.TEXT
-                b.value = TextFieldValue(ZWS + lines[0], TextRange(1))
-                b.spans = emptyList()
-                blocks.addAll(idx + 1, lines.drop(1).map { BlockState(Block(text = it)) })
-            }
-            b.type != BlockType.TEXT -> {
-                if (b.type.isList && b.indent > 0) b.indent-- else {
-                    b.type = BlockType.TEXT
-                    b.checked = false
-                }
-            }
-            b.indent > 0 -> b.indent--
-            // 首行缩进的段落在段首退格：先取消缩进
-            b.firstIndent -> b.firstIndent = false
-            b.align != Align.START -> b.align = Align.START
-            idx == 0 -> {
-                undoStack.removeLastOrNull()
-                canUndo = undoStack.isNotEmpty()
-                return
-            }
-            else -> {
-                val prev = blocks[idx - 1]
-                if (!prev.type.isText) {
-                    blocks.removeAt(idx - 1)
-                } else {
-                    val join = prev.value.text.length
-                    prev.spans = (prev.spans + b.spans.shifted(join - 1)).normalized(join + b.text.length)
-                    prev.value = TextFieldValue(prev.value.text + b.text, TextRange(join))
-                    blocks.removeAt(idx)
-                    // 当前块的输入框要到下一帧才销毁，趁它还在时把焦点直接交给上一块：
-                    // 输入法连接在同一帧内转移，键盘不会先收起再弹出。
-                    // 当前块失焦时还会回调一次 onValueChange，它已不在 blocks 里，会被忽略
-                    runCatching { prev.focus.requestFocus() }
-                    focusedId = prev.id
-                    requestFocus(prev, join)
-                }
-            }
+        val prev=blocks[idx-1]
+        if(!prev.type.isText) {
+            blocks.removeAt(idx-1)
+        } else {
+            val join=prev.value.text.length
+            val format=if(b.type!=BlockType.TEXT || prev.text.isEmpty()) b.toBlock() else prev.toBlock()
+            val merged=format.copy(text=prev.text+b.text,
+                spans=prev.toBlock().spans+b.toBlock().spans.shifted(prev.text.length))
+            // Reuse the current field to keep the native input session alive.
+            b.restore(merged,join)
+            blocks.removeAt(idx-1)
+            focusedId=b.id
+            requestFocus(b,join)
         }
         changed()
     }

@@ -178,6 +178,9 @@ object ImageParagraphRegression {
             fun toolPoint(index: Int)=main { val viewport=e().selection.viewport!!; val origin=viewport.localToRoot(Offset.Zero); Offset((26+44*index)*density,origin.y+viewport.size.height+24*density) }
             tap(toolPoint(1))
             waitFor("paragraph panel") { find("段落首行缩进")!=null && main { ime()<80 } }; Thread.sleep(450)
+            val pin=find("固定面板") ?: error("Missing panel pin")
+            val pinBounds=android.graphics.Rect().also { pin.getBoundsInScreen(it) }
+            tap(Offset(pinBounds.exactCenterX(),pinBounds.exactCenterY()))
             val panelTop=main { val viewport=e().selection.viewport!!; viewport.localToRoot(Offset.Zero).y+viewport.size.height+48*density }
             val width=main { activity.window.decorView.width.toFloat() }
             val numbered=Offset(16*density+(width-40*density)/1.67f/6f,panelTop+36*density)

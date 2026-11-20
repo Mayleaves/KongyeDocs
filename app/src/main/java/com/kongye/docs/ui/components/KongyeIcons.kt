@@ -195,6 +195,9 @@ object KongyeIcons {
     }
     val Count = icon("count") { s("M5 6h14M5 12h14M5 18h8") }
     val OpenLink = icon("openLink") { s("M14 4h6v6"); s("M20 4l-9 9"); s("M18 14v4a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4") }
+    val Keyboard = icon("keyboard") {
+        s(rrect(3f, 5f, 18f, 14f, 2f)); s("M7 9h.01M10.5 9h.01M14 9h.01M17 9h.01M7 12h.01M10.5 12h.01M14 12h.01M17 12h.01M7 15.5h10")
+    }
     val KeyboardHide = icon("keyboardHide") {
         s(rrect(3f, 3.5f, 18f, 11f, 2f)); s("M7 7.5h.01M10.5 7.5h.01M14 7.5h.01M17 7.5h.01M7 11h10"); s("M9.5 18l2.5 2.5 2.5-2.5")
     }

@@ -3,6 +3,13 @@ package com.kongye.docs.ui.editor
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.net.Uri
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.ensureActive
+import com.kongye.docs.ui.components.Toast
 import android.os.PersistableBundle
 import android.os.SystemClock
 import android.text.Html
@@ -29,6 +36,49 @@ internal object DocumentClipboard {
     private var candidate: Candidate?=null
     private var richText: String?=null
     private var publishing=false
+    private val imageScopes=java.util.WeakHashMap<EditorState,CoroutineScope>()
+    fun attach(editor: EditorState,scope: CoroutineScope) { imageScopes[editor]=scope }
+    fun detach(editor: EditorState) { imageScopes.remove(editor) }
+
+    /** Decode off the UI thread. Never paste at a different caret after a slow read. */
+    fun pasteImages(editor: EditorState,uris: List<Uri>,release: () -> Unit = {}): Boolean {
+        val scope=imageScopes[editor] ?: return false
+        if(uris.isEmpty() || editor.titleFocused || editor.focusedCell!=null || editor.findMode) return false
+        val version=editor.version
+        val focus=editor.focusedId
+        val caret=editor.focused?.value?.selection
+        val image=editor.imageCaret
+        val range=editor.selection.range
+        val all=editor.selection.all
+        val job=scope.launch {
+            val imported=mutableListOf<Pair<String,Float>>()
+            var inserted=false
+            try {
+                withContext(Dispatchers.IO) {
+                    uris.forEach { uri ->
+                        ensureActive()
+                        Repository.importImage(uri)?.let { imported+=it }
+                    }
+                }
+                if(imported.isEmpty()) { Toast.show("图片无法读取，请重新复制后粘贴"); return@launch }
+                if(editor.version!=version || editor.focusedId!=focus || editor.focused?.value?.selection!=caret ||
+                    editor.imageCaret!=image || editor.selection.range!=range || editor.selection.all!=all ||
+                    editor.titleFocused || editor.focusedCell!=null || editor.findMode) {
+                    Toast.show("插入位置已改变，请重新粘贴图片")
+                    return@launch
+                }
+                inserted=editor.pasteFragment(ClipboardFragment(imported.map { (name,ratio) ->
+                    Block(type=BlockType.IMAGE,image=name,imageRatio=ratio)
+                }))
+                if(imported.size<uris.size) Toast.show("有 ${uris.size-imported.size} 张图片无法读取")
+            } finally {
+                if(!inserted) imported.forEach { (name,_) -> File(Repository.imagesDir,name).delete() }
+            }
+        }
+        // Also release grants when disposal cancels the job before its body starts.
+        job.invokeOnCompletion { release() }
+        return true
+    }
     private val tokens=Regex("[a-f0-9-]{36}")
     private fun root(context: Context)=File(context.cacheDir,"document-clipboard").apply { mkdirs() }
     private fun plain(context: Context,data: ClipData)=(0 until data.itemCount).joinToString("\n") { data.getItemAt(it).coerceToText(context).toString() }
@@ -106,6 +156,14 @@ internal object DocumentClipboard {
 
     fun paste(context: Context,editor: EditorState): Boolean {
         val data=context.getSystemService(ClipboardManager::class.java).primaryClip ?: return false
+        // Image ClipData must not be coerced into a content:// text address.
+        if(data.description.extras?.getString(TOKEN)==null) {
+            val images=(0 until data.itemCount).mapNotNull { data.getItemAt(it).uri }.filter { uri ->
+                runCatching { context.contentResolver.getType(uri)?.startsWith("image/") }.getOrNull()==true ||
+                    data.itemCount==1 && data.description.hasMimeType("image/*")
+            }
+            if(images.isNotEmpty()) return pasteImages(editor,images)
+        }
         val text=plain(context,data)
         val part=read(context,data,text)
         return if(part!=null) editor.pasteFragment(part) else editor.pastePlain(text)
