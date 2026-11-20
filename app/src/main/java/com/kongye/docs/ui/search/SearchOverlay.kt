@@ -1,8 +1,5 @@
 package com.kongye.docs.ui.search
 
-import android.os.Build
-import android.window.OnBackInvokedCallback
-import android.window.OnBackInvokedDispatcher
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.Animatable
@@ -17,9 +14,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.isImeVisible
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,14 +37,12 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -62,9 +54,6 @@ import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalFocusManager
-import androidx.compose.ui.platform.LocalView
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
@@ -96,11 +85,8 @@ private val HighlightBg get() = if (Kongye.dark) Color(0x664D8DF0) else Color(0x
  * 石墨风格的搜索浮层：搜索栏从顶部滑下、键盘从底部升起，中间是变暗的当前页面。
  * 输入关键词后显示结果，标题和正文中的关键词都会高亮；齿轮里可以设置搜索范围。
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
 fun SearchOverlay() {
-    val view = LocalView.current
-    val imeVisible = WindowInsets.isImeVisible
     val progress = remember { Animatable(0f) }
     val scope = rememberCoroutineScope()
     val focus = remember { FocusRequester() }
@@ -109,15 +95,12 @@ fun SearchOverlay() {
     var query by remember { mutableStateOf("") }
     var scopeOpen by remember { mutableStateOf(false) }
     var closing by remember { mutableStateOf(false) }
-    var previousImeVisible by remember { mutableStateOf(false) }
-    var keepingSearchAfterImeHide by remember { mutableStateOf(false) }
     val items by Repository.items.collectAsState()
     val time = AppState.searchTime
     val type = AppState.searchType
     val results = remember(query, items, time, type) { filtered(Repository.search(query, onlyComments = type == SearchType.COMMENT), time, type) }
 
     fun dismissKeyboard() {
-        keepingSearchAfterImeHide = true
         keyboard?.hide()
         focusManager.clearFocus()
     }
@@ -125,7 +108,6 @@ fun SearchOverlay() {
     fun close() {
         if (closing) return
         closing = true
-        query = ""
         dismissKeyboard()
         scope.launch {
             progress.animateTo(0f, tween(220, easing = FastOutLinearInEasing))
@@ -139,29 +121,7 @@ fun SearchOverlay() {
         delay(60)
         runCatching { focus.requestFocus() }
     }
-    val backAction by rememberUpdatedState<() -> Unit> {
-        if (scopeOpen) scopeOpen = false else close()
-    }
-    BackHandler(enabled = !closing) { backAction() }
-    DisposableEffect(view, closing) {
-        if (Build.VERSION.SDK_INT >= 33 && !closing) {
-            val dispatcher = view.findOnBackInvokedDispatcher()
-            val callback = OnBackInvokedCallback { backAction() }
-            dispatcher?.registerOnBackInvokedCallback(OnBackInvokedDispatcher.PRIORITY_OVERLAY, callback)
-            onDispose { dispatcher?.unregisterOnBackInvokedCallback(callback) }
-        } else {
-            onDispose { }
-        }
-    }
-    LaunchedEffect(imeVisible) {
-        val wasVisible = previousImeVisible
-        previousImeVisible = imeVisible
-        if (imeVisible) keepingSearchAfterImeHide = false
-        // Older Android versions let the IME consume Back before the activity.
-        if (Build.VERSION.SDK_INT < 33 && wasVisible && !imeVisible &&
-            !keepingSearchAfterImeHide && !closing && view.hasWindowFocus()
-        ) close()
-    }
+    BackHandler(enabled = !closing) { if (scopeOpen) scopeOpen = false else close() }
 
     Box(Modifier.fillMaxSize()) {
         // 变暗的当前页面，点空白处关闭
@@ -198,8 +158,7 @@ fun SearchOverlay() {
                             cursorBrush = SolidColor(Kongye.Bookmark),
                             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
                             keyboardActions = KeyboardActions(onSearch = { dismissKeyboard() }),
-                            modifier = Modifier.weight(1f).focusRequester(focus)
-                                .semantics { contentDescription = "搜索文件、文件夹" },
+                            modifier = Modifier.weight(1f).focusRequester(focus),
                             decorationBox = { inner ->
                                 Box(contentAlignment = Alignment.CenterStart) {
                                     if (query.isEmpty()) Text("搜索文件、文件夹", fontSize = 15.sp, color = Kongye.Sub)
