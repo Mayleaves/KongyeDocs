@@ -5,12 +5,17 @@ import android.net.Uri
 import android.provider.DocumentsContract
 import android.provider.DocumentsContract.Document
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlin.coroutines.coroutineContext
 import okhttp3.Credentials
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrl
@@ -43,6 +48,19 @@ object AutoBackup {
     private const val HOUR = 60 * 60 * 1000L
     private const val DAY = 24 * HOUR
 
+    @Serializable
+    private data class VaultBackupTask(
+        val settings: BackupSettings,
+        val entries: List<VaultEntry>,
+        val name: String,
+        val payload: String = "",
+        val localDone: Boolean,
+        val davDone: Boolean,
+    )
+
+    private val pendingJson = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private var lastVaultTaskTime = 0L
+
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val mutex = Mutex()
     private val stamp = SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US)
@@ -63,10 +81,17 @@ object AutoBackup {
     fun runIfDue(context: Context) {
         val app = context.applicationContext
         BackupJobService.schedule(app)
-        scope.launch { runCatching { runAuto(app) } }
+        scope.launch {
+            runCatching { flushVaultBackups(app) }
+            runCatching { runAuto(app) }
+        }
     }
 
-    suspend fun runScheduled(context: Context) { runCatching { runAuto(context.applicationContext) } }
+    suspend fun runScheduled(context: Context) {
+        runCatching { flushVaultBackups(context.applicationContext) }
+        coroutineContext.ensureActive()
+        runCatching { runAuto(context.applicationContext) }
+    }
 
     private suspend fun runAuto(ctx: Context) = mutex.withLock {
         val s = Settings.value.backup
@@ -90,6 +115,118 @@ object AutoBackup {
             val err = runCatching { putDav(s, name, data) }.exceptionOrNull()
             if (err == null) runCatching { cleanDav(s, name, now) }
             Settings.updateBackup { it.copy(lastDav = if (err == null) now else it.lastDav, lastDavRevision = if (err == null) revision else it.lastDavRevision, davError = err?.let(::describe).orEmpty()) }
+        }
+    }
+
+    /** Keep each committed vault state until both configured destinations have accepted it. */
+    @Synchronized
+    fun onVaultChanged(context: Context, entries: List<VaultEntry>) {
+        val settings = Settings.value.backup
+        val local = settings.localTree.isNotEmpty()
+        val dav = settings.davUrl.isNotBlank()
+        if (!local && !dav) return
+        val app = context.applicationContext
+        try {
+            check(settings.vaultPassword.isNotEmpty()) { "请先在密码空间设置备份密码" }
+            val directory = vaultQueue(app)
+            val previousTime = directory.listFiles().orEmpty()
+                .mapNotNull { it.name.substringBefore('-').toLongOrNull() }.maxOrNull() ?: 0L
+            val time = maxOf(System.currentTimeMillis(), lastVaultTaskTime + 1, previousTime + 1)
+            lastVaultTaskTime = time
+            val task = VaultBackupTask(
+                settings = settings,
+                entries = entries,
+                name = PREFIX + synchronized(stamp) { stamp.format(Date(time)) } + "-${newId()}.json",
+                localDone = !local,
+                davDone = !dav,
+            )
+            writeVaultTask(File(directory, "$time-${newId()}.json"), task)
+            BackupJobService.schedule(app)
+            scope.launch { runCatching { flushVaultBackups(app) } }
+        } catch (error: Exception) {
+            Settings.updateBackup {
+                it.copy(
+                    localError = if (local) describe(error) else it.localError,
+                    davError = if (dav) describe(error) else it.davError,
+                )
+            }
+        }
+    }
+
+    private fun vaultQueue(context: Context) = File(context.filesDir, "vault-backup-queue")
+
+    internal fun hasPendingVaultBackups(context: Context) =
+        vaultQueue(context).listFiles().orEmpty().any { it.isFile && it.name.endsWith(".json") }
+
+    private fun writeVaultTask(file: File, task: VaultBackupTask) {
+        val protected = CredentialStore.encrypt(pendingJson.encodeToString(task), CredentialStore.VAULT_ALIAS)
+        DurableFiles.write(file, protected.toByteArray(Charsets.UTF_8), keepPrevious = false)
+    }
+
+    /** Retry unfinished destinations while keeping completed local copies and uploaded bytes stable. */
+    internal suspend fun flushVaultBackups(context: Context) = mutex.withLock {
+        var localBlocked = false
+        var davBlocked = false
+        val files = vaultQueue(context).listFiles().orEmpty()
+            .filter { it.isFile && it.name.endsWith(".json") }.sortedBy { it.name }
+        for (file in files) {
+            coroutineContext.ensureActive()
+            var task = try {
+                val protected = file.readText()
+                pendingJson.decodeFromString<VaultBackupTask>(
+                    CredentialStore.decrypt(protected, CredentialStore.VAULT_ALIAS)
+                )
+            } catch (_: Exception) {
+                Settings.updateBackup {
+                    it.copy(localError = "无法读取待备份的密码记录", davError = "无法读取待备份的密码记录")
+                }
+                continue
+            }
+            if (task.localDone && task.davDone) {
+                check(file.delete()) { "无法清理已完成的备份记录" }
+                continue
+            }
+            if (task.payload.isEmpty()) {
+                try {
+                    val vault = VaultStore.seal(task.entries, task.settings.vaultPassword)
+                    task = task.copy(payload = Repository.exportBackup(vault))
+                    writeVaultTask(file, task)
+                } catch (error: Exception) {
+                    Settings.updateBackup {
+                        it.copy(
+                            localError = if (!task.localDone) describe(error) else it.localError,
+                            davError = if (!task.davDone) describe(error) else it.davError,
+                        )
+                    }
+                    continue
+                }
+            }
+            val now = System.currentTimeMillis()
+            if (!task.localDone && !localBlocked) {
+                try {
+                    writeLocal(context, task.settings, task.name, task.payload)
+                    task = task.copy(localDone = true)
+                    writeVaultTask(file, task)
+                    Settings.updateBackup { it.copy(lastLocal = now, localError = "") }
+                    runCatching { cleanLocal(context, task.settings, task.name, now) }
+                } catch (error: Exception) {
+                    localBlocked = true
+                    Settings.updateBackup { it.copy(localError = describe(error)) }
+                }
+            }
+            if (!task.davDone && !davBlocked) {
+                try {
+                    putDav(task.settings, task.name, task.payload)
+                    task = task.copy(davDone = true)
+                    writeVaultTask(file, task)
+                    Settings.updateBackup { it.copy(lastDav = now, davError = "") }
+                    runCatching { cleanDav(task.settings, task.name, now) }
+                } catch (error: Exception) {
+                    davBlocked = true
+                    Settings.updateBackup { it.copy(davError = describe(error)) }
+                }
+            }
+            if (task.localDone && task.davDone) check(file.delete()) { "无法清理已完成的备份记录" }
         }
     }
 

@@ -30,7 +30,7 @@ class BackupJobService : JobService() {
         fun schedule(context: Context) {
             val s = Settings.value.backup
             val scheduler = context.getSystemService(JobScheduler::class.java)
-            if (!s.localEnabled && !s.davEnabled) { scheduler.cancel(ID); return }
+            if (!s.localEnabled && !s.davEnabled && !AutoBackup.hasPendingVaultBackups(context)) { scheduler.cancel(ID); return }
             if (scheduler.getPendingJob(ID) != null) return
             scheduler.schedule(JobInfo.Builder(ID, ComponentName(context, BackupJobService::class.java))
                 .setPersisted(true).setPeriodic(15 * 60 * 1000L).build())

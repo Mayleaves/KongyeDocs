@@ -746,7 +746,7 @@ object Repository {
     // ---------- 备份 ----------
 
     @Synchronized
-    fun exportBackup(): String {
+    fun exportBackup(vault: VaultBackup? = VaultStore.backupPayload()): String {
         writable()
         val items = _items.value
         val docs = items.filter { it.isDoc }.associate { it.id to loadDoc(it.id) }
@@ -768,7 +768,7 @@ object Repository {
         }
         return BackupCodec.encode(Backup(nickname = _nickname.value, items = items, docs = docs, images = images,
             library = library().copy(revision = revision), versions = history, templates = templates, exportRecords = _exports.value, exportFiles = files, revision = revision,
-            vault = VaultStore.backupPayload()))
+            vault = vault))
     }
 
     /** 导入备份：同 id 的条目会被覆盖，其余保留；返回导入的文档数（不算回收站里的） */

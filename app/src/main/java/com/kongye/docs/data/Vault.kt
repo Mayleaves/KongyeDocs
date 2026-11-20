@@ -144,6 +144,7 @@ object VaultStore {
     const val KDF = "PBKDF2WithHmacSHA256"
     private const val ITERATIONS = 120_000
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = true }
+    private var app: Context? = null
     private var file: File? = null
     private val _entries = MutableStateFlow<List<VaultEntry>>(emptyList())
     val entries: StateFlow<List<VaultEntry>> = _entries.asStateFlow()
@@ -158,6 +159,7 @@ object VaultStore {
 
     @Synchronized
     fun init(context: Context) {
+        app = context.applicationContext
         val dir = File(context.filesDir, "vault").apply { mkdirs() }
         val f = File(dir, "vault.json")
         file = f
@@ -174,7 +176,7 @@ object VaultStore {
         val normalized = loaded.map { it.normalized() }
         _entries.value = normalized
         // 2.23 的网址、备注转换成字段后立即写回，只做一次
-        if (normalized != loaded) runCatching { persist(normalized) }
+        if (normalized != loaded) runCatching { persist(normalized, backup = false) }
     }
 
     /** 置顶 / 取消置顶（不改修改时间） */
@@ -186,11 +188,14 @@ object VaultStore {
     fun get(id: String) = _entries.value.firstOrNull { it.id == id }
 
     @Synchronized
-    private fun persist(next: List<VaultEntry>) {
+    private fun persist(next: List<VaultEntry>, backup: Boolean = true) {
         check(_problem.value.isEmpty()) { _problem.value }
         val f = file ?: error("密码空间尚未初始化")
+        val previous = _entries.value
         DurableFiles.write(f, CredentialStore.encrypt(json.encodeToString(VaultFile(next)), CredentialStore.VAULT_ALIAS))
         _entries.value = next
+        val changed = previous.map { it.copy(lastUsedAt = 0L) } != next.map { it.copy(lastUsedAt = 0L) }
+        if (backup && changed) app?.let { AutoBackup.onVaultChanged(it, next) }
     }
 
     /** 清理旧版本误存的浏览器关联；密码及其余字段保持原样。 */
@@ -198,7 +203,7 @@ object VaultStore {
     fun dropApps(drop: (String) -> Boolean) {
         if (!healthy) return
         val next = _entries.value.map { e -> e.apps.filterNot(drop).let { if (it.size == e.apps.size) e else e.copy(apps = it).normalized() } }
-        if (next != _entries.value) runCatching { persist(next) }
+        if (next != _entries.value) runCatching { persist(next, backup = false) }
     }
 
     /** 新增或修改（同 id 覆盖） */

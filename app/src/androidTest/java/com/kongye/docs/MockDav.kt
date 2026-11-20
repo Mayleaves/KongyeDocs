@@ -17,6 +17,7 @@ class MockDav(private val fullPaths: Boolean = false) : AutoCloseable {
     val requests=CopyOnWriteArrayList<Pair<String,String>>()
     val tamper=AtomicBoolean(false)
     val deletes=AtomicInteger(0)
+    val rejectPut=AtomicBoolean(false)
     val rejectDelete=AtomicBoolean(false)
     private val running=AtomicBoolean(true)
     private val worker=thread(isDaemon=true,name="Synthetic-DAV") {
@@ -45,7 +46,7 @@ class MockDav(private val fullPaths: Boolean = false) : AutoCloseable {
         var code=200
         val data=when(request[0]) {
             "MKCOL" -> { code=405; byteArrayOf() }
-            "PUT" -> { files[key]=body; code=201; byteArrayOf() }
+            "PUT" -> { if(rejectPut.get()) code=503 else { files[key]=body; code=201 }; byteArrayOf() }
             "GET" -> if(tamper.get()) "CORRUPTED".toByteArray() else files[key] ?: byteArrayOf()
             "DELETE" -> { if(rejectDelete.get()) code=403 else { files.remove(key); deletes.incrementAndGet() }; byteArrayOf() }
             "PROPFIND" -> {
