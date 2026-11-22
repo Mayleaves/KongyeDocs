@@ -23,7 +23,7 @@ import com.kongye.docs.vault.VaultApi
 import java.io.File
 
 internal object NewVaultUiRegression {
-    fun run(inst: Instrumentation,pass: (String)->Unit) {
+    fun run(inst: Instrumentation,saveOnly: Boolean=false,pass: (String)->Unit) {
         fun <T> main(action: ()->T): T { var r: Result<T>?=null; inst.runOnMainSync { r=runCatching(action) }; return r!!.getOrThrow() }
         val ctx=inst.targetContext
         val activity=startTestActivity(inst,ctx)
@@ -137,6 +137,7 @@ internal object NewVaultUiRegression {
                 com.kongye.docs.ui.AppState.filesSub=com.kongye.docs.ui.FilesSub.VAULT
                 activity.setContent { KongyeTheme { com.kongye.docs.ui.KongyeApp() } }
             }
+            if(!saveOnly) {
             waitFor("ordinary category count excludes favorites") { find("共 80 个密码")!=null }
             waitFor("unconfigured backup hint") { find("尚未设置密码备份")!=null }
             click("去设置")
@@ -247,6 +248,7 @@ internal object NewVaultUiRegression {
             main { com.kongye.docs.ui.AppState.goHome(com.kongye.docs.ui.Tab.FILES) }
             pass("desktop-swipes-do-not-switch-pages-and-Me-vault-subpage-contains-backup-and-fill")
 
+            }
             val input=VaultApi.SaveInput("","save-ui.example","自动存入测试","demo-account","synthetic-password",
                 fields=listOf(VaultApi.SaveField("email","邮箱","demo@example.test")))
             val token=PendingSaves.put(input)
@@ -261,12 +263,28 @@ internal object NewVaultUiRegression {
                 saving=saveActivity
             } finally { inst.removeMonitor(monitor) }
             waitFor("save labels") { find("账号字段名称")!=null }
+            val previewDir=File(ctx.getExternalFilesDir(null),"save-preview").apply { mkdirs() }
+            fun screenshot(name: String) {
+                // Synthetic isolated data only; the real password UI keeps FLAG_SECURE.
+                main { saveActivity.window.clearFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
+                Thread.sleep(400)
+                auto.takeScreenshot()?.let { bmp -> File(previewDir,name).outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) }; bmp.recycle() }
+                main { saveActivity.window.addFlags(android.view.WindowManager.LayoutParams.FLAG_SECURE) }
+            }
+            check(main { androidx.core.view.ViewCompat.getRootWindowInsets(saveActivity.window.decorView)?.isVisible(androidx.core.view.WindowInsetsCompat.Type.ime())!=true })
+            screenshot("save-password-light.png")
+            main { com.kongye.docs.ui.theme.Kongye.dark=true }
+            screenshot("save-password-dark.png")
+            main { com.kongye.docs.ui.theme.Kongye.dark=false }
             text("账号字段名称","我的登录名","账号")
             text("密码字段名称","我的口令","密码")
             text("字段 1 名称","联系邮箱","邮箱")
             click("＋ 添加字段")
             text("字段 2 名称","备用信息","新字段")
             text("字段 2 内容","extra-test-value","")
+            main { androidx.core.view.WindowCompat.getInsetsController(saveActivity.window,saveActivity.window.decorView).hide(androidx.core.view.WindowInsetsCompat.Type.ime()) }
+            Thread.sleep(450)
+            screenshot("save-password-custom-fields.png")
             click("保存")
             waitFor("custom saved") { VaultStore.entries.value.any { it.name=="自动存入测试" } }
             val saved=VaultStore.entries.value.single { it.name=="自动存入测试" }

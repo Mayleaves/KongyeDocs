@@ -133,7 +133,7 @@ class AutofillActivity : ComponentActivity() {
         overridePendingTransition(0, 0)
         val inputState=when(mode) {
             MODE_MORE -> WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE
-            MODE_GENERATE -> WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
+            MODE_GENERATE, MODE_SAVE -> WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_HIDDEN
             else -> WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED
         }
         window.setSoftInputMode(inputState or WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE)
@@ -393,46 +393,89 @@ class AutofillActivity : ComponentActivity() {
         var accountLabel by remember { mutableStateOf(existing?.accountLabel ?: "账号") }
         var passwordLabel by remember { mutableStateOf(existing?.passwordLabel ?: "密码") }
         val account = input.resolvedAccount
-        Title(
-            if (existing != null) "更新密码" else "保存到空叶文档",
-            if (existing != null) "将更新「${existing.name}」的密码，旧密码会保留在条目里" else "将新建一条密码",
-        )
-        if (existing == null) {
-            Text("名称", Modifier.padding(start = 20.dp, top = 4.dp), fontSize = 13.sp, color = Kongye.Text3)
-            Box(Modifier.padding(horizontal = 16.dp, vertical = 6.dp).fillMaxWidth().height(42.dp).clip(RoundedCornerShape(8.dp)).background(Kongye.Field).padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
-                BasicTextField(
-                    name, { name = it.take(60) }, singleLine = true, textStyle = TextStyle(fontSize = 15.sp, color = Kongye.Ink), cursorBrush = SolidColor(Kongye.Primary),
-                    modifier = Modifier.fillMaxWidth().semantics { contentDescription = "名称" },
-                )
-            }
-        }
-        SaveLabelField("账号字段名称",accountLabel,{accountLabel=it})
-        InfoLine(accountLabel.ifBlank { "账号" }, if(account.isEmpty()) "（没有）" else VaultApi.mask(account))
-        SaveLabelField("密码字段名称",passwordLabel,{passwordLabel=it})
-        InfoLine(passwordLabel.ifBlank { "密码" },"********")
-        editable.forEachIndexed { i,f ->
-            if(f.value.trim()==account && f.type!="other") return@forEachIndexed
-            Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=5.dp),verticalAlignment=Alignment.CenterVertically) {
-                Checkbox(checked.getOrElse(i){true},{ checked[i]=it })
-                Column(Modifier.weight(1f)) {
-                    SaveLabelField("字段 ${i+1} 名称",f.storedLabel,{ editable[i]=f.copy(type="other",label=it) })
-                    BasicTextField(f.value,{editable[i]=f.copy(value=it.take(500))},
-                        Modifier.fillMaxWidth().background(Kongye.Field).padding(10.dp).semantics { contentDescription="字段 ${i+1} 内容" },
-                        textStyle=TextStyle(fontSize=14.sp,color=Kongye.Text),
-                        visualTransformation=if(f.secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None)
+        Column(Modifier.fillMaxWidth().heightIn(max=620.dp)) {
+            Row(Modifier.fillMaxWidth().padding(start=20.dp,end=12.dp,top=20.dp,bottom=16.dp),verticalAlignment=Alignment.CenterVertically) {
+                Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(Kongye.Field),contentAlignment=Alignment.Center) {
+                    Icon(KongyeIcons.Key,null,Modifier.size(23.dp),tint=Kongye.Ink2)
                 }
-                Text("移除",Modifier.clickable { editable.removeAt(i); checked.removeAt(i) }.padding(8.dp),fontSize=13.sp,color=Kongye.Sub)
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(if(existing!=null) "更新密码" else "保存到空叶文档",fontSize=18.sp,fontWeight=FontWeight.SemiBold,color=Kongye.Ink)
+                    Spacer(Modifier.height(3.dp))
+                    Text(if(existing!=null) existing.name else "确认账号信息，保存到密码空间",fontSize=12.sp,color=Kongye.Text3,maxLines=1,overflow=TextOverflow.Ellipsis)
+                }
+                Box(Modifier.size(40.dp).clip(CircleShape).clickable { PendingSaves.take(token); finish() }
+                    .semantics { contentDescription="关闭" },contentAlignment=Alignment.Center) {
+                    Icon(KongyeIcons.Close,null,Modifier.size(19.dp),tint=Kongye.Icon2)
+                }
             }
-        }
-        Text("＋ 添加字段",Modifier.fillMaxWidth().clickable {
-            if(editable.size<30) { editable.add(VaultApi.SaveField("other","新字段","")); checked.add(true) }
-        }.padding(horizontal=20.dp,vertical=12.dp),fontSize=15.sp,color=Kongye.Link)
-        if (input.domain.isNotEmpty()) InfoLine("网址", input.domain)
-        Spacer(Modifier.height(12.dp))
-        Row(Modifier.padding(horizontal = 16.dp).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-            Box(Modifier.weight(1f)) { SecondaryButton("不保存") { PendingSaves.take(token); finish() } }
-            Box(Modifier.weight(1f)) {
-                PrimaryButton(if (existing != null) "更新" else "保存", inset = false) {
+            Column(Modifier.weight(1f,fill=false).verticalScroll(rememberScrollState()).padding(horizontal=20.dp)) {
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Kongye.Field)) {
+                    if(existing==null) {
+                        Column(Modifier.fillMaxWidth().padding(horizontal=14.dp,vertical=12.dp)) {
+                            Text("名称",fontSize=12.sp,color=Kongye.Text3)
+                            Spacer(Modifier.height(6.dp))
+                            BasicTextField(name,{name=it.take(60)},Modifier.fillMaxWidth().semantics { contentDescription="名称" },
+                                singleLine=true,textStyle=TextStyle(fontSize=15.sp,color=Kongye.Ink),cursorBrush=SolidColor(Kongye.Primary))
+                        }
+                        HLine(Modifier.padding(horizontal=14.dp),color=Kongye.Line2.copy(alpha=.55f))
+                    }
+                    Column(Modifier.fillMaxWidth().padding(horizontal=14.dp,vertical=12.dp)) {
+                        SaveLabelField("账号字段名称",accountLabel,{accountLabel=it})
+                        Spacer(Modifier.height(5.dp))
+                        Text(if(account.isEmpty()) "未提供账号" else VaultApi.mask(account),fontSize=15.sp,color=Kongye.Ink,maxLines=1,overflow=TextOverflow.Ellipsis)
+                    }
+                    HLine(Modifier.padding(horizontal=14.dp),color=Kongye.Line2.copy(alpha=.55f))
+                    Column(Modifier.fillMaxWidth().padding(horizontal=14.dp,vertical=12.dp)) {
+                        SaveLabelField("密码字段名称",passwordLabel,{passwordLabel=it})
+                        Spacer(Modifier.height(5.dp))
+                        Text("••••••••••••",fontSize=15.sp,letterSpacing=2.sp,color=Kongye.Ink)
+                    }
+                }
+                val hasExtras=editable.indices.any { editable[it].value.trim()!=account || editable[it].type=="other" }
+                if(hasExtras) {
+                    Spacer(Modifier.height(18.dp))
+                    Text("附加信息",fontSize=12.sp,color=Kongye.Text3)
+                    Spacer(Modifier.height(8.dp))
+                }
+                editable.forEachIndexed { i,f ->
+                    if(f.value.trim()==account && f.type!="other") return@forEachIndexed
+                    Row(Modifier.padding(bottom=8.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Kongye.Field)
+                        .padding(start=2.dp,end=4.dp,top=7.dp,bottom=7.dp),verticalAlignment=Alignment.CenterVertically) {
+                        Checkbox(checked.getOrElse(i){true},{checked[i]=it},colors=androidx.compose.material3.CheckboxDefaults.colors(checkedColor=Kongye.Primary,uncheckedColor=Kongye.Text4))
+                        Column(Modifier.weight(1f).padding(vertical=3.dp)) {
+                            SaveLabelField("字段 ${i+1} 名称",f.storedLabel,{editable[i]=f.copy(type="other",label=it)})
+                            Spacer(Modifier.height(6.dp))
+                            BasicTextField(f.value,{editable[i]=f.copy(value=it.take(500))},
+                                Modifier.fillMaxWidth().semantics { contentDescription="字段 ${i+1} 内容" },
+                                textStyle=TextStyle(fontSize=14.sp,color=Kongye.Ink),cursorBrush=SolidColor(Kongye.Primary),
+                                decorationBox={ inner -> Box { if(f.value.isEmpty()) Text("填写内容",fontSize=14.sp,color=Kongye.Text4); inner() } },
+                                visualTransformation=if(f.secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None)
+                        }
+                        Box(Modifier.size(36.dp).clip(CircleShape).clickable { editable.removeAt(i); checked.removeAt(i) }
+                            .semantics { contentDescription="移除字段 ${i+1}" },contentAlignment=Alignment.Center) {
+                            Icon(KongyeIcons.Close,null,Modifier.size(16.dp),tint=Kongye.Icon2)
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth().height(44.dp).clip(RoundedCornerShape(8.dp)).clickable(enabled=editable.size<30) {
+                    editable.add(VaultApi.SaveField("other","新字段","")); checked.add(true)
+                }.semantics { contentDescription="＋ 添加字段" },verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.Center) {
+                    Icon(KongyeIcons.Plus,null,Modifier.size(16.dp),tint=Kongye.Link)
+                    Spacer(Modifier.width(6.dp))
+                    Text("添加字段",fontSize=14.sp,color=Kongye.Link)
+                }
+                if(input.domain.isNotEmpty()) Row(Modifier.fillMaxWidth().padding(top=2.dp,bottom=14.dp),verticalAlignment=Alignment.CenterVertically) {
+                    Text("网址",fontSize=12.sp,color=Kongye.Text3)
+                    Spacer(Modifier.width(10.dp))
+                    Text(input.domain,Modifier.weight(1f),fontSize=12.sp,color=Kongye.Text2,maxLines=1,overflow=TextOverflow.Ellipsis)
+                }
+            }
+            HLine(color=Kongye.Divider)
+            Row(Modifier.padding(horizontal=20.dp,vertical=14.dp).fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                Box(Modifier.weight(1f)) { SecondaryButton("不保存") { PendingSaves.take(token); finish() } }
+                Box(Modifier.weight(1.5f)) {
+                    PrimaryButton(if(existing!=null) "更新" else "保存",inset=false) {
                     val taken = PendingSaves.take(token) ?: run { finish(); return@PrimaryButton }
                     val final = taken.copy(name = name.trim(), account=account, accountLabel=accountLabel.trim().ifEmpty { "账号" }, passwordLabel=passwordLabel.trim().ifEmpty { "密码" }, fields = editable.filterIndexed { i, _ -> checked.getOrElse(i) { true } }.filter { it.value.isNotBlank() })
                     runCatching { VaultApi.saveCredential(this@AutofillActivity, final) }
@@ -442,16 +485,15 @@ class AutofillActivity : ComponentActivity() {
                         }
                         .onFailure { Toast.makeText(this@AutofillActivity, "保存失败：${it.message}", Toast.LENGTH_LONG).show() }
                     finish()
+                    }
                 }
             }
         }
     }
 
     @Composable private fun SaveLabelField(description: String,value: String,onChange: (String) -> Unit) {
-        BasicTextField(value,{onChange(it.take(20))},
-            Modifier.padding(horizontal=16.dp,vertical=4.dp).fillMaxWidth().background(Kongye.Field).padding(10.dp)
-                .semantics { contentDescription=description },
-            singleLine=true,textStyle=TextStyle(fontSize=14.sp,color=Kongye.Ink),cursorBrush=SolidColor(Kongye.Primary))
+        BasicTextField(value,{onChange(it.take(20))},Modifier.fillMaxWidth().semantics { contentDescription=description },
+            singleLine=true,textStyle=TextStyle(fontSize=12.sp,color=Kongye.Text2),cursorBrush=SolidColor(Kongye.Primary))
     }
 
     // ---------- 通用界面 ----------
@@ -461,15 +503,14 @@ class AutofillActivity : ComponentActivity() {
         BackHandler(onBack = onDismiss)
         Box(
             Modifier.fillMaxSize()
-                .then(if(mode==MODE_GENERATE) Modifier.background(Color.Black.copy(alpha=0.45f)) else Modifier)
+                .then(if(mode==MODE_GENERATE || mode==MODE_SAVE) Modifier.background(Color.Black.copy(alpha=0.45f)) else Modifier)
                 .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onDismiss),
             contentAlignment = Alignment.BottomCenter,
         ) {
             Column(
                 Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = 16.dp, topEnd = 16.dp)).background(Kongye.Surface)
                     .clickable(remember { MutableInteractionSource() }, indication = null) {}
-                    .imePadding().navigationBarsPadding().padding(bottom = 12.dp)
-                    .then(if(mode==MODE_SAVE) Modifier.heightIn(max=600.dp).verticalScroll(rememberScrollState()) else Modifier),
+                    .imePadding().navigationBarsPadding().padding(bottom = 12.dp),
             ) { content() }
         }
     }
