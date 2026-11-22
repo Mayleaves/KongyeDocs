@@ -19,6 +19,9 @@ import kotlinx.coroutines.launch
 import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import java.io.File
@@ -90,6 +93,7 @@ object Repository {
     private val exportsDir get() = File(app.filesDir, "exports")
     private val exportsFile get() = File(app.filesDir, "exports.json")
     val imagesDir get() = File(app.filesDir, "images")
+    internal val syncContext: Context get() = app
 
     private const val DAY = 24 * 60 * 60 * 1000L
 
@@ -263,6 +267,7 @@ object Repository {
         textIndex[item.id] = text
         indexComments(item.id, content)
         docCache[item.id] = content
+        CloudSync.changed(app)
         return item
     }
 
@@ -494,6 +499,7 @@ object Repository {
         docCache[id] = content
         textIndex[id] = text
         indexComments(id, content)
+        CloudSync.changed(app)
     }
 
     @Synchronized
@@ -517,6 +523,7 @@ object Repository {
         writable()
         atomicWrite(libFile, json.encodeToString(library()))
         revision++
+        CloudSync.changed(app)
     }
 
     @Synchronized
@@ -742,6 +749,79 @@ object Repository {
         val bmp = BitmapFactory.decodeFile(f.path) ?: return null
         bitmapCache.put(name, bmp)
         return bmp
+    }
+
+    @kotlinx.serialization.Serializable
+    internal data class SyncDocument(val item: Item,val content: DocContent?=null,val images: Map<String,String> = emptyMap())
+
+    @Synchronized internal fun syncSnapshot(): Map<String,JsonElement> {
+        writable()
+        return _items.value.associate { item ->
+            val doc=if(item.isDoc) loadDoc(item.id) else null
+            val images=linkedMapOf<String,String>()
+            val names=doc?.blocks.orEmpty().map { it.image }.filter { it.isNotEmpty() }.distinct().associateWith { name ->
+                require(BackupCodec.validImage(name))
+                val bytes=File(imagesDir,name).readBytes()
+                val digest=java.security.MessageDigest.getInstance("SHA-256").digest(bytes).take(8).joinToString("") { "%02x".format(it) }
+                val canonical=digest+"."+name.substringAfterLast('.')
+                images[canonical]=Base64.encodeToString(bytes,Base64.NO_WRAP)
+                canonical
+            }
+            val canonical=doc?.copy(blocks=doc.blocks.map { it.copy(image=names[it.image] ?: it.image) })
+            item.id to json.encodeToJsonElement(SyncDocument(item.copy(openedAt=0),canonical,images))
+        }
+    }
+
+    @Synchronized internal fun applySync(values: Map<String,JsonElement>,metadata: Pair<String,ByteArray>) {
+        writable()
+        val incoming=values.map { (id,value) -> json.decodeFromJsonElement<SyncDocument>(value).also {
+            require(BackupCodec.validId(id) && it.item.id==id && (it.item.isDoc==(it.content!=null))) { "同步文档格式无效" }
+            require(it.content==null || it.content.blocks.isNotEmpty()) { "同步文档为空" }
+        } }
+        val all=incoming.associateBy { it.item.id }
+        val next=incoming.sortedBy { it.item.id }.map { data ->
+            val item=data.item
+            val visited=mutableSetOf(item.id)
+            var parent=item.parentId
+            var valid=true
+            while(parent!=null) {
+                val folder=all[parent]?.item
+                if(folder?.isFolder!=true || !visited.add(parent)) { valid=false; break }
+                parent=folder.parentId
+            }
+            item.copy(parentId=if(valid) item.parentId else null,openedAt=get(item.id)?.openedAt ?: 0)
+        }
+        BackupCodec.validateLibrary(library(next))
+        val changes=linkedMapOf<String,ByteArray>()
+        incoming.forEach { data ->
+            data.images.forEach { (name,encoded) ->
+                require(BackupCodec.validImage(name)) { "同步图片名称无效" }
+                val bytes=Base64.decode(encoded,Base64.NO_WRAP)
+                val digest=java.security.MessageDigest.getInstance("SHA-256").digest(bytes).take(8).joinToString("") { "%02x".format(it) }
+                require(name.substringBefore('.')==digest) { "同步图片校验失败" }
+                val target=File(imagesDir,name)
+                if(!target.isFile || !target.readBytes().contentEquals(bytes)) changes["images/$name"]=bytes
+            }
+            data.content?.let { doc ->
+                require(doc.blocks.all { b -> BackupCodec.validId(b.id) && (b.image.isEmpty() || b.image in data.images) &&
+                    b.spans.all { r -> r.start>=0 && r.end>=r.start && r.end<=b.text.length } }) { "同步文档内容无效" }
+                val old=get(data.item.id)?.takeIf { it.isDoc }
+                if(old!=null && (old.title!=data.item.title || loadDoc(old.id)!=doc)) {
+                    val history=listOf(DocVersion(kind=VersionKind.LOCAL,title=old.title,content=loadDoc(old.id),note="云同步前自动保存"))+versions(old.id)
+                    changes["versions/${old.id}.json"]=json.encodeToString(history).toByteArray()
+                }
+                if(old==null || loadDoc(old.id)!=doc) changes["docs/${data.item.id}.json"]=json.encodeToString(doc).toByteArray()
+            }
+        }
+        val nextMap=next.associateBy { it.id }
+        val ordered=(_items.value.map { it.id }+nextMap.keys.sorted()).distinct().mapNotNull { nextMap[it] }
+        val changed=changes.isNotEmpty() || _items.value.associateBy { it.id }!=nextMap
+        if(changed) changes["library.json"]=json.encodeToString(library(ordered)).toByteArray()
+        changes[metadata.first]=metadata.second
+        DurableFiles.transaction(app.filesDir,changes)
+        docCache.clear(); versionCache.clear(); textIndex.clear(); commentIndex.clear()
+        _items.value=ordered; if(changed) revision++
+        incoming.forEach { d -> d.content?.let { docCache[d.item.id]=it; textIndex[d.item.id]=it.bodyText(); indexComments(d.item.id,it) } }
     }
 
     // ---------- 备份 ----------

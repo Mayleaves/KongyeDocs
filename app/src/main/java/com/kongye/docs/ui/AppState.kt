@@ -43,6 +43,7 @@ sealed interface Screen {
     data class VaultEdit(val id: String?, val type: VaultType) : Screen
 
     /** 密码空间 → 密码填充：是否允许空叶键盘 / 悬浮球读取、解锁状态、访问记录 */
+    data object VaultSettings : Screen
     data object VaultFill : Screen
 }
 
@@ -109,6 +110,7 @@ object AppState {
 
     /** 密码空间里点了右下角 +：弹出“添加动态密码 / 添加密码” */
     var vaultAdd by mutableStateOf(false)
+    var vaultIndexDragging by mutableStateOf(false)
 
     /** 密码空间的搜索浮层（与我的桌面的搜索分开，只搜密码空间） */
     var vaultSearchOpen by mutableStateOf(false)

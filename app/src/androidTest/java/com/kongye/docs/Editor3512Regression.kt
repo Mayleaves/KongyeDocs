@@ -31,7 +31,7 @@ import java.io.File
 
 /** Image clipboard/IME insertion, formatted boundary deletion, and explicit panel pinning. */
 object Editor3512Regression {
-    fun run(inst: Instrumentation, panelsOnly: Boolean = false, pass: (String) -> Unit) {
+    fun run(inst: Instrumentation, panelsOnly: Boolean = false, choicesOnly: Boolean = false, pass: (String) -> Unit) {
         fun <T> main(action: () -> T): T {
             var result: Result<T>?=null
             inst.runOnMainSync { result=runCatching(action) }
@@ -71,12 +71,9 @@ object Editor3512Regression {
         fun tap(point: Offset) {
             val down=SystemClock.uptimeMillis()
             for(action in listOf(MotionEvent.ACTION_DOWN,MotionEvent.ACTION_UP)) {
-                main {
-                    val origin=IntArray(2).also { activity.window.decorView.getLocationOnScreen(it) }
-                    val event=MotionEvent.obtain(down,SystemClock.uptimeMillis(),action,point.x-origin[0],point.y-origin[1],0)
-                        .apply { this.source=InputDevice.SOURCE_TOUCHSCREEN }
-                    activity.dispatchTouchEvent(event); event.recycle()
-                }
+                val event=MotionEvent.obtain(down,SystemClock.uptimeMillis(),action,point.x,point.y,0)
+                    .apply { this.source=InputDevice.SOURCE_TOUCHSCREEN }
+                check(auto.injectInputEvent(event,true)); event.recycle()
                 Thread.sleep(45)
             }
         }
@@ -113,6 +110,7 @@ object Editor3512Regression {
             waitFor("document") { main { EditorSession.current?.docId==doc.id && e().layouts.isNotEmpty() && activity.hasWindowFocus() } }
             inst.waitForIdleSync(); Thread.sleep(450)
             tap(textPoint(0))
+            if(choicesOnly) main { e().requestFocus(e().blocks.first(),2) }
             waitFor("keyboard") { main { ime()>100 } }; settle()
         }
         val clip=context.getSystemService(ClipboardManager::class.java)
@@ -206,6 +204,7 @@ object Editor3512Regression {
                 val origin=v.localToScreen(Offset.Zero)
                 Offset(70*density,origin.y+v.size.height+24*density)
             }
+            if(!choicesOnly) {
             tap(paragraphTool())
             waitFor("panel") { find("固定面板")!=null && main { ime()<80 } }; Thread.sleep(400)
             tapLabel("固定面板")
@@ -236,6 +235,28 @@ object Editor3512Regression {
             doubleTap(textPoint(1))
             waitFor("selection across keyboard handoff") { main { e().selection.active && ime()>100 } }
             pass("double-tap-selection-survives-unpinned-panel-to-keyboard-handoff")
+            }
+            open(listOf(Block(text="选择工具自动返回键盘")))
+            tap(paragraphTool())
+            waitFor("paragraph choices") { find("段落首行缩进")!=null && main { ime()<80 } }
+            val numberButton=main {
+                val viewport=e().selection.viewport!!
+                val top=viewport.localToScreen(Offset.Zero).y+viewport.size.height+48*density
+                val width=activity.window.decorView.width.toFloat()
+                Offset(16*density+(width-40*density)/1.67f/6f,top+36*density)
+            }
+            tap(numberButton)
+            waitFor("numbering returns keyboard") { find("段落首行缩进")==null && main { ime()>100 && e().blocks.first().type==BlockType.NUMBER } }
+            val styleButton=main {
+                val v=e().selection.viewport!!
+                Offset(26*density,v.localToScreen(Offset.Zero).y+v.size.height+24*density)
+            }
+            tap(styleButton)
+            waitFor("style choices") { find("标题1")!=null && main { ime()<80 } }
+            tapLabel("标题1")
+            waitFor("heading returns keyboard") { find("标题1")==null && main { ime()>100 && e().blocks.first().type==BlockType.H1 } }
+            pass("unpinned-paragraph-and-heading-tool-choice-automatically-open-keyboard")
+
         } catch(error: Throwable) {
             auto.takeScreenshot()?.let { bitmap ->
                 File(context.getExternalFilesDir(null),"editor3512-failure.png").outputStream().use { bitmap.compress(Bitmap.CompressFormat.PNG,100,it) }

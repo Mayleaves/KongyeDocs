@@ -358,6 +358,8 @@ fun CloudBackupScreen() {
                 }
             }
 
+            CloudSyncSection()
+
             SettingsTitle("自动备份")
             SettingsGroup {
                 SwitchRow("自动备份", s.davEnabled) { on ->

@@ -114,7 +114,7 @@ import androidx.compose.ui.draw.drawBehind
 object EditorSession {
     var current: EditorState? = null
     var keyboardHeight by mutableStateOf(0.dp)
-    private val documents=mutableMapOf<String,EditorState>()
+    private val documents=java.util.concurrent.ConcurrentHashMap<String,EditorState>()
     fun obtain(id: String, isNew: Boolean)=documents.getOrPut(id) { EditorState(id,isNew) }
     fun closeDocument(id: String): Boolean {
         val editor=documents[id] ?: return true
@@ -125,6 +125,7 @@ object EditorSession {
     }
     fun reload(id: String) { documents[id]?.reloadSavedContent() }
     fun snapshot(id: String) = documents[id]?.let { it.title.text to it.content() }
+    fun openIds(): Set<String> = documents.keys.toSet()
 }
 
 private sealed interface EdSheet {
@@ -450,6 +451,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
     androidx.compose.runtime.CompositionLocalProvider(
         LocalKeepEditorPanel provides (panel!=null && !returningToKeyboard && editor.commentDraft==null),
         LocalEditorTextTap provides { if(!panelPinned && panel!=null) returnToKeyboard() },
+        LocalToolPicked provides { if(!panelPinned) returnToKeyboard() },
     ) {
     val layout = LocalKongyeLayout.current
     Column(Modifier.fillMaxSize().background(Kongye.Surface)) {

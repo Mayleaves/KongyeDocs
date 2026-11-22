@@ -95,6 +95,7 @@ object AutoBackup {
     }
 
     suspend fun runScheduled(context: Context) {
+        CloudSync.run(context.applicationContext)
         runCatching { flushVaultBackups(context.applicationContext) }
         coroutineContext.ensureActive()
         runCatching { runAuto(context.applicationContext) }

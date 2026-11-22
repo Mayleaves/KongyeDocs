@@ -8,6 +8,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.encodeToJsonElement
+import kotlinx.serialization.json.decodeFromJsonElement
 import java.io.File
 import java.security.SecureRandom
 import javax.crypto.AEADBadTagException
@@ -28,6 +31,8 @@ data class VaultEntry(
     /** 网站或应用的名称，如 GitHub */
     val name: String,
     val account: String = "",
+    val accountLabel: String = "账号",
+    val passwordLabel: String = "密码",
     /** 动态密码：Base32 密钥、位数、刷新周期（秒）、算法 */
     val secret: String = "",
     val digits: Int = 6,
@@ -195,7 +200,7 @@ object VaultStore {
         DurableFiles.write(f, CredentialStore.encrypt(json.encodeToString(VaultFile(next)), CredentialStore.VAULT_ALIAS))
         _entries.value = next
         val changed = previous.map { it.copy(lastUsedAt = 0L) } != next.map { it.copy(lastUsedAt = 0L) }
-        if (backup && changed) app?.let { AutoBackup.onVaultChanged(it, next) }
+        if (backup && changed) app?.let { AutoBackup.onVaultChanged(it, next); CloudSync.changed(it) }
     }
 
     /** 清理旧版本误存的浏览器关联；密码及其余字段保持原样。 */
@@ -250,28 +255,64 @@ object VaultStore {
     private fun b64(bytes: ByteArray) = Base64.encodeToString(bytes, Base64.NO_WRAP)
     private fun unb64(text: String) = Base64.decode(text, Base64.NO_WRAP)
 
+    private val derivedKeys=object: LinkedHashMap<String,SecretKeySpec>(16,.75f,true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String,SecretKeySpec>?)=size>16
+    }
     private fun deriveKey(password: String, salt: ByteArray, iterations: Int): SecretKeySpec {
+        val cacheId=java.security.MessageDigest.getInstance("SHA-256").digest(
+            (password+"\u0000"+b64(salt)+"\u0000"+iterations).toByteArray()).joinToString("") { "%02x".format(it) }
+        synchronized(derivedKeys) { derivedKeys[cacheId]?.let { return it } }
         val spec = PBEKeySpec(password.toCharArray(), salt, iterations, 256)
-        try { return SecretKeySpec(SecretKeyFactory.getInstance(KDF).generateSecret(spec).encoded, "AES") }
+        try {
+            val key=SecretKeySpec(SecretKeyFactory.getInstance(KDF).generateSecret(spec).encoded, "AES")
+            synchronized(derivedKeys) { derivedKeys[cacheId]=key }
+            return key
+        }
         finally { spec.clearPassword() }
     }
 
     fun seal(entries: List<VaultEntry>, password: String): VaultBackup {
+        return sealText(json.encodeToString(VaultFile(entries)),password,entries.size)
+    }
+
+    internal fun sealText(text: String, password: String, count: Int = 0): VaultBackup {
         require(password.isNotEmpty()) { "备份密码为空" }
         val salt = ByteArray(16).also { SecureRandom().nextBytes(it) }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.ENCRYPT_MODE, deriveKey(password, salt, ITERATIONS))
-        val data = cipher.doFinal(json.encodeToString(VaultFile(entries)).toByteArray(Charsets.UTF_8))
-        return VaultBackup(KDF, ITERATIONS, b64(salt), b64(cipher.iv), b64(data), entries.size)
+        val data = cipher.doFinal(text.toByteArray(Charsets.UTF_8))
+        return VaultBackup(KDF, ITERATIONS, b64(salt), b64(cipher.iv), b64(data), count)
     }
 
     /** 用备份密码解开备份里的密码空间；密码不对抛 VaultPasswordException */
     fun open(backup: VaultBackup, password: String): List<VaultEntry> {
+        return json.decodeFromString<VaultFile>(openText(backup,password)).entries
+    }
+
+    internal fun openText(backup: VaultBackup, password: String): String {
         require(backup.kdf == KDF && backup.iterations in 10_000..5_000_000) { "不支持的密码空间备份格式" }
         val cipher = Cipher.getInstance("AES/GCM/NoPadding")
         cipher.init(Cipher.DECRYPT_MODE, deriveKey(password, unb64(backup.salt), backup.iterations), GCMParameterSpec(128, unb64(backup.iv)))
         val plain = try { cipher.doFinal(unb64(backup.data)) } catch (e: AEADBadTagException) { throw VaultPasswordException() }
-        return json.decodeFromString<VaultFile>(plain.toString(Charsets.UTF_8)).entries
+        return plain.toString(Charsets.UTF_8)
+    }
+
+    @Synchronized internal fun syncSnapshot(): Map<String,JsonElement> {
+        check(healthy) { "密码空间读取异常，已停止同步" }
+        return _entries.value.associate { it.id to json.encodeToJsonElement(it.copy(lastUsedAt=0)) }
+    }
+
+    @Synchronized internal fun applySync(values: Map<String,JsonElement>,metadata: Pair<String,ByteArray>) {
+        check(healthy)
+        val previous=_entries.value
+        val next=values.map { (id,value) -> json.decodeFromJsonElement<VaultEntry>(value).also {
+            require(it.id==id && BackupCodec.validId(id)) { "同步密码 ID 无效" }
+        }.normalized().let { entry -> entry.copy(lastUsedAt=previous.firstOrNull { it.id==id }?.lastUsedAt ?: 0) } }
+        val f=requireNotNull(file)
+        val encrypted=CredentialStore.encrypt(json.encodeToString(VaultFile(next)),CredentialStore.VAULT_ALIAS)
+        DurableFiles.transaction(requireNotNull(app).filesDir,mapOf("vault/vault.json" to encrypted.toByteArray(),metadata))
+        _entries.value=next
+        if(previous.associateBy { it.id }!=next.associateBy { it.id }) AutoBackup.onVaultChanged(requireNotNull(app),next)
     }
 
     /** 导出备份时调用：设置了备份密码且有内容才放进备份，否则备份里没有密码空间 */

@@ -6,4 +6,5 @@
     <exclude domain="file" path=".transaction/" />
     <exclude domain="file" path="recovery/" />
     <exclude domain="file" path="vault/" />
+    <exclude domain="file" path="cloud-sync/" />
 </full-backup-content>

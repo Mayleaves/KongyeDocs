@@ -233,6 +233,7 @@ object VaultApi {
     data class SaveInput(
         val app: String, val domain: String, val name: String, val account: String, val password: String,
         val kind: String = "login", val fields: List<SaveField> = emptyList(), val currentPassword: String = "", val rules: String = "",
+        val accountLabel: String = "", val passwordLabel: String = "",
     ) {
         /** 没传账号时：用户名 → 手机号 → 邮箱 */
         val resolvedAccount: String get() = account.trim().ifEmpty {
@@ -282,18 +283,19 @@ object VaultApi {
         val account = input.resolvedAccount
         val existing = findExisting(input)
         val cert = AppCerts.of(context, app)
-        val extra = input.fields.filter { it.value.isNotBlank() && it.value.trim() != account && !it.storedLabel.startsWith(OLD_PASSWORD) }
+        val extra = input.fields.filter { it.value.isNotBlank() && (it.type=="other" || it.value.trim() != account) && !it.storedLabel.startsWith(OLD_PASSWORD) }
         if (existing != null) {
             var next = replacePassword(bind(existing, app, domain, cert), input.password)
             next = mergeFields(next, extra)
             if (input.rules.isNotEmpty()) next = next.copy(passwordRules = input.rules)
             if (next.account.isEmpty() && account.isNotEmpty()) next = next.copy(account = account)
-            VaultStore.save(next.copy(lastUsedAt = System.currentTimeMillis()))
+            VaultStore.save(next.copy(lastUsedAt = System.currentTimeMillis(),accountLabel=input.accountLabel.trim().ifEmpty { next.accountLabel },passwordLabel=input.passwordLabel.trim().ifEmpty { next.passwordLabel }))
             return SaveResult(existing.id, "updated", existing.name, extra.size)
         }
         val name = input.name.ifEmpty { appLabel(context, app) ?: domain.ifEmpty { "网页密码" } }
         val created = VaultStore.add(mergeFields(VaultEntry(
             type = VaultType.PASSWORD, name = name, account = account, password = input.password,
+            accountLabel=input.accountLabel.trim().ifEmpty { "账号" },passwordLabel=input.passwordLabel.trim().ifEmpty { "密码" },
             url = domain, apps = listOfNotNull(app.ifEmpty { null }),
             appCerts = if (app.isNotEmpty() && cert != null) mapOf(app to cert) else emptyMap(),
             passwordRules = input.rules, lastUsedAt = System.currentTimeMillis(),

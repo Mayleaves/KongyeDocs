@@ -185,6 +185,7 @@ fun GlobalOverlays() {
 
     // 恢复的备份里有密码空间、但本机的备份密码解不开时，请用户输入备份密码
     com.kongye.docs.ui.vault.VaultRestoreDialog()
+    com.kongye.docs.ui.screens.CloudSyncConflicts()
 }
 
 private suspend fun importFiles(context: Context, uris: List<Uri>, parentId: String?) {

@@ -49,6 +49,8 @@ import com.kongye.docs.ui.components.KongyeIcons
 import com.kongye.docs.ui.theme.Kongye
 
 /** 工具栏按钮展开的二级面板，显示在键盘的位置 */
+internal val LocalToolPicked=androidx.compose.runtime.staticCompositionLocalOf<() -> Unit> { {} }
+
 enum class EdPanel { STYLE, PARAGRAPH, INSERT, CUSTOMIZE }
 
 /**
@@ -135,6 +137,7 @@ private fun TbBtn(icon: ImageVector, active: Boolean = false, enabled: Boolean =
 /** “Aa” 样式面板：替代键盘的位置显示 */
 @Composable
 fun StylePanel(editor: EditorState, height: Dp) {
+    val picked=LocalToolPicked.current
     val b = editor.focused
     val active = editor.activeStyles()
     val fg = active.firstOrNull { it.style == InlineStyle.COLOR }?.color ?: 0L
@@ -149,7 +152,7 @@ fun StylePanel(editor: EditorState, height: Dp) {
                 Box(
                     Modifier.weight(1f).height(44.dp).clip(RoundedCornerShape(8.dp))
                         .background(if (selected) Kongye.PrimarySoft else Kongye.Bg2)
-                        .clickable(enabled = b != null) { editor.setBlockType(t) },
+                        .clickable(enabled = b != null) { editor.setBlockType(t); picked() },
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
@@ -190,7 +193,7 @@ fun StylePanel(editor: EditorState, height: Dp) {
         }
         Spacer(Modifier.height(16.dp))
         Row(
-            Modifier.fillMaxWidth().height(42.dp).clip(RoundedCornerShape(8.dp)).background(Kongye.Bg2).clickable { editor.clearFormat() },
+            Modifier.fillMaxWidth().height(42.dp).clip(RoundedCornerShape(8.dp)).background(Kongye.Bg2).clickable { editor.clearFormat(); picked() },
             horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(KongyeIcons.ClearFormat, null, Modifier.size(18.dp), tint = Kongye.Text2)
@@ -202,9 +205,10 @@ fun StylePanel(editor: EditorState, height: Dp) {
 
 @Composable
 private fun RowScope.Seg(icon: ImageVector, selected: Boolean, enabled: Boolean = true, onClick: () -> Unit) {
+    val picked=LocalToolPicked.current
     Box(
         Modifier.weight(1f).fillMaxHeight().padding(3.dp).clip(RoundedCornerShape(6.dp))
-            .background(if (selected) Kongye.Surface else Color.Transparent).clickable(enabled = enabled, onClick = onClick),
+            .background(if (selected) Kongye.Surface else Color.Transparent).clickable(enabled = enabled) { onClick(); picked() },
         contentAlignment = Alignment.Center,
     ) {
         Icon(icon, null, Modifier.size(20.dp), tint = when { !enabled -> Kongye.Text4; selected -> Kongye.Primary; else -> Kongye.Text })
@@ -214,6 +218,7 @@ private fun RowScope.Seg(icon: ImageVector, selected: Boolean, enabled: Boolean 
 /** “段落”面板：有序 / 无序 / 待办列表，增加 / 减少缩进，段落首行缩进 */
 @Composable
 fun ParagraphPanel(editor: EditorState, height: Dp) {
+    val picked=LocalToolPicked.current
     val b = editor.focused
     val type = b?.type
     Column(
@@ -238,7 +243,7 @@ fun ParagraphPanel(editor: EditorState, height: Dp) {
         Box(
             Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(8.dp))
                 .background(if (on) Kongye.PrimarySoft else Kongye.Bg2)
-                .clickable(enabled = canIndent) { editor.toggleFirstIndent() },
+                .clickable(enabled = canIndent) { editor.toggleFirstIndent(); picked() },
             contentAlignment = Alignment.Center,
         ) {
             Text(
@@ -331,11 +336,12 @@ private class InsertItem(
 
 @Composable
 private fun Swatch(color: Long, isText: Boolean, selected: Boolean, onClick: () -> Unit) {
+    val picked=LocalToolPicked.current
     Box(
         Modifier.size(34.dp).clip(RoundedCornerShape(8.dp))
             .background(if (isText || color == 0L) Kongye.Surface else Color(color))
             .border(if (selected) 2.dp else 1.dp, if (selected) Kongye.Primary else Kongye.Line2, RoundedCornerShape(8.dp))
-            .clickable(onClick = onClick),
+            .clickable { onClick(); picked() },
         contentAlignment = Alignment.Center,
     ) {
         if (isText) {

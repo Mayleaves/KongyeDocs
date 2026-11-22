@@ -111,7 +111,8 @@ fun HomeScreen() {
                 Tab.FILES -> FilesTab(items)
                 Tab.ME -> MeTab(items)
             }
-            if (AppState.tab != Tab.ME && AppState.selection == null) {
+            val inVault=AppState.tab==Tab.FILES && AppState.filesSub==FilesSub.VAULT
+            if (AppState.tab != Tab.ME && AppState.selection == null && !(inVault && AppState.vaultIndexDragging)) {
                 Fab(Modifier.align(Alignment.BottomEnd).padding(end = 20.dp, bottom = 20.dp)) {
                     // 密码空间里的 + 是添加动态密码 / 密码
                     if (AppState.tab == Tab.FILES && AppState.filesSub == FilesSub.VAULT) AppState.vaultAdd = true
@@ -616,7 +617,7 @@ internal fun recentSections(items: List<Item>): List<Section> {
 
 @Composable
 private fun FilesTab(items: List<Item>) {
-    // 我的桌面 / 密码空间：同级的两页，和首页“最近 / 收藏 / 创建”一样可以左右滑动切换
+    // 我的桌面 / 密码空间仅点击切换，水平手势留给密码分类。
     val pager = rememberPagerState(initialPage = AppState.filesSub.ordinal) { FilesSub.entries.size }
     LaunchedEffect(pager) { snapshotFlow { pager.settledPage }.collect { AppState.filesSub = FilesSub.entries[it] } }
     LaunchedEffect(AppState.filesSub) {
@@ -636,7 +637,7 @@ private fun FilesTab(items: List<Item>) {
                 }
             }
         }
-        HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = AppState.selection == null, key = { it }) { page ->
+        HorizontalPager(pager, Modifier.fillMaxSize(), userScrollEnabled = false, key = { it }) { page ->
             if (FilesSub.entries[page] == FilesSub.VAULT) VaultPage() else FolderContents(null, items)
         }
     }

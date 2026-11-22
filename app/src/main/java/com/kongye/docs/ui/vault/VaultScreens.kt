@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
@@ -70,6 +72,7 @@ import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -133,15 +136,15 @@ private fun grouped(code: String) = if (code.length >= 6) code.substring(0, code
 
 private fun codeOrNull(entry: VaultEntry, now: Long) = runCatching { Totp.code(entry, now) }.getOrNull()
 
-/** 置顶的在前（后置顶的在上），其余按名称 */
+/** 搜索中收藏的在前，其余按名称；沿用既有字段保持数据兼容。 */
 private fun ordered(list: List<VaultEntry>) = list.filter { it.pinned }.sortedByDescending { it.pinnedAt } + list.filterNot { it.pinned }.sortedBy { it.name.lowercase() }
 
 /** 长按 → 复制全部字段：每行“字段名：内容”，含密码和隐藏内容，标记为敏感 */
 private fun copyAll(context: Context, e: VaultEntry) {
     val lines = buildList {
         add("名称" to e.name)
-        add("账号" to e.account)
-        add("密码" to e.password)
+        add(e.accountLabel to e.account)
+        add(e.passwordLabel to e.password)
         if (e.type == VaultType.OTP) add("密钥" to e.secret)
         e.fields.forEach { add(it.label to it.value) }
     }.filter { it.second.isNotBlank() }
@@ -160,41 +163,72 @@ private class VaultSheets {
 
 @Composable
 fun VaultPage() {
+    androidx.compose.runtime.DisposableEffect(Unit) { onDispose { AppState.vaultIndexDragging=false } }
+    val context=LocalContext.current
     val entries by VaultStore.entries.collectAsState()
     val problem by VaultStore.problem.collectAsState()
     val settings by Settings.state.collectAsState()
-    val hasPassword = settings.backup.vaultPassword.isNotEmpty()
     val sheets = remember { VaultSheets() }
-    var settingPassword by remember { mutableStateOf(false) }
-    var backupMenu by remember { mutableStateOf(false) }
-    var stopBackup by remember { mutableStateOf(false) }
-    val pinned = entries.filter { it.pinned }.sortedByDescending { it.pinnedAt }
-    val otp = entries.filter { !it.pinned && it.type == VaultType.OTP }.sortedBy { it.name.lowercase() }
-    val passwords = entries.filter { !it.pinned && it.type == VaultType.PASSWORD }.sortedBy { it.name.lowercase() }
+    val categories=listOf("收藏","动态密码","普通密码")
+    val pager=rememberPagerState(initialPage=2) { categories.size }
+    val scope=rememberCoroutineScope()
+    val sync by com.kongye.docs.data.CloudSync.status.collectAsState()
+    val categoryCount=entries.count { when(pager.targetPage) {
+        0 -> it.pinned
+        1 -> !it.pinned && it.type==VaultType.OTP
+        else -> !it.pinned && it.type==VaultType.PASSWORD
+    } }
     val now = if (entries.any { it.type == VaultType.OTP }) ticker() else 0L
 
     Column(Modifier.fillMaxSize()) {
         // 读取出错时才显示的一行红字
         if (problem.isNotEmpty()) Text(problem, Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp), fontSize = 12.sp, color = Kongye.Danger)
-        // 两个小胶囊：备份、密码填充的状态，点一下进入设置
-        Row(
-            Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            StatusPill(KongyeIcons.Upload, "备份", if (hasPassword) "已开启" else "未设置", warn = !hasPassword) {
-                if (hasPassword) backupMenu = true else settingPassword = true
+        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=8.dp),horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+            categories.forEachIndexed { index,label ->
+                Box(Modifier.height(32.dp).clip(RoundedCornerShape(16.dp))
+                    .background(if(pager.targetPage==index) Kongye.PrimarySoft else Kongye.Field)
+                    .clickable { scope.launch { pager.animateScrollToPage(index) } }.semantics { selected=pager.targetPage==index }
+                    .padding(horizontal=14.dp),contentAlignment=Alignment.Center) {
+                    Text(label,fontSize=13.sp,color=if(pager.targetPage==index) Kongye.Primary else Kongye.Text2)
+                }
             }
-            StatusPill(KongyeIcons.Key, "密码填充", if (settings.vaultFill) "已开启" else "已关闭") { AppState.push(Screen.VaultFill) }
         }
-        if (entries.isEmpty()) {
-            EmptyState("密码空间是空的", "点击右下角 + 添加动态密码或密码")
-        } else {
-            LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
-                listOf("置顶" to pinned, "动态密码" to otp, "密码" to passwords).forEach { (title, list) ->
-                    if (list.isNotEmpty()) {
-                        item(key = "h-$title") { SectionLabel(title) }
-                        items(list, key = { it.id }) { e -> VaultEntryRow(e, now, sheets) }
+        if(settings.backup.vaultPassword.isEmpty()) {
+            Row(Modifier.padding(horizontal=16.dp,vertical=4.dp).fillMaxWidth().clip(RoundedCornerShape(8.dp))
+                .background(Kongye.Field).clickable { AppState.push(Screen.VaultSettings) }
+                .padding(horizontal=12.dp,vertical=10.dp),verticalAlignment=Alignment.CenterVertically) {
+                Text("尚未设置密码备份",Modifier.weight(1f),fontSize=13.sp,color=Kongye.Text2)
+                Text("去设置",fontSize=13.sp,color=Kongye.Link)
+                Icon(KongyeIcons.ChevronRight,null,Modifier.padding(start=3.dp).size(15.dp),tint=Kongye.Link)
+            }
+        }
+        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=5.dp),horizontalArrangement=Arrangement.SpaceBetween) {
+            Text("共 $categoryCount 个${if(pager.targetPage==1) "动态密码" else "密码"}",fontSize=12.sp,color=Kongye.Sub)
+            if(settings.backup.cloudSync) Text(if(sync.conflicts.isNotEmpty()) "${sync.conflicts.size} 项同步冲突" else sync.message.ifEmpty { "同步" },
+                Modifier.clickable { if(sync.conflicts.isNotEmpty()) com.kongye.docs.ui.screens.SyncUi.conflicts=true else com.kongye.docs.data.CloudSync.request(context) },fontSize=12.sp,color=Kongye.Link)
+        }
+        HorizontalPager(pager,Modifier.fillMaxSize(),userScrollEnabled=!AppState.vaultIndexDragging) { page ->
+            val filtered=remember(entries,page) { entries.filter { when(page) {
+                0 -> it.pinned
+                1 -> !it.pinned && it.type==VaultType.OTP
+                else -> !it.pinned && it.type==VaultType.PASSWORD
+            } } }
+            val groups=remember(filtered) { filtered.groupBy { VaultAlphabet.key(it.name) } }
+            val ordered=VaultAlphabet.letters.filter { it in groups }
+            val offsets=remember(filtered) { var offset=0; ordered.associateWith { key -> val result=offset; offset+=1+groups.getValue(key).size; result } }
+            val listState=androidx.compose.foundation.lazy.rememberLazyListState()
+            if(filtered.isEmpty()) {
+                EmptyState(if(entries.isEmpty()) "密码空间是空的" else "暂无${categories[page]}",if(page==0) "长按密码条目可添加收藏" else "点击右下角 + 添加动态密码或密码")
+            } else {
+                Box(Modifier.fillMaxSize()) {
+                    LazyColumn(Modifier.fillMaxSize().padding(end=44.dp),state=listState,contentPadding=PaddingValues(bottom=96.dp)) {
+                        ordered.forEach { key ->
+                            item(key="letter-$key") { SectionLabel(key) }
+                            items(groups.getValue(key).sortedWith(compareBy(java.text.Collator.getInstance(java.util.Locale.CHINA)) { it.name }),key={it.id}) { e -> VaultEntryRow(e,now,sheets) }
+                        }
+                    }
+                    Box(Modifier.align(Alignment.CenterEnd)) {
+                        VaultIndexBar(groups.keys,{ AppState.vaultIndexDragging=it }) { letter -> offsets[letter]?.let { index -> scope.launch { listState.scrollToItem(index) } } }
                     }
                 }
             }
@@ -209,6 +243,53 @@ fun VaultPage() {
             SheetAction(KongyeIcons.Key, "添加密码") { AppState.push(Screen.VaultEdit(null, VaultType.PASSWORD)) },
         ),
     )
+}
+
+/** 密码空间原来的备份、填充入口统一放到「我的」。 */
+@Composable
+fun VaultSettingsScreen() {
+    val entries by VaultStore.entries.collectAsState()
+    Column(Modifier.fillMaxSize().background(Kongye.Band)) {
+        TopBar(title="密码空间",onBack={AppState.pop()},divider=true)
+        Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).navigationBarsPadding().padding(top=12.dp)) {
+            SettingsGroup {
+                Column(Modifier.fillMaxWidth().padding(horizontal=20.dp)) {
+                    Row(Modifier.fillMaxWidth().heightIn(min=52.dp)
+                        .semantics(mergeDescendants=true) { contentDescription="共 ${entries.size} 个密码" },verticalAlignment=Alignment.CenterVertically) {
+                        Text("密码总数",Modifier.weight(1f),fontSize=16.sp,color=Kongye.Ink)
+                        Text(entries.size.toString(),fontSize=17.sp,fontWeight=FontWeight.Medium,color=Kongye.Ink)
+                    }
+                    HLine(color=Kongye.Divider)
+                    Row(Modifier.fillMaxWidth().padding(vertical=14.dp),horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                        listOf("收藏" to entries.count { it.pinned },
+                            "动态密码" to entries.count { !it.pinned && it.type==VaultType.OTP },
+                            "普通密码" to entries.count { !it.pinned && it.type==VaultType.PASSWORD }).forEach { (label,count) ->
+                            Row(Modifier.weight(1f).semantics(mergeDescendants=true) { contentDescription="$label：$count 个" },
+                                horizontalArrangement=Arrangement.spacedBy(6.dp),verticalAlignment=Alignment.CenterVertically) {
+                                Text(label,fontSize=13.sp,color=Kongye.Sub)
+                                Text(count.toString(),fontSize=13.sp,fontWeight=FontWeight.Medium,color=Kongye.Ink)
+                            }
+                        }
+                    }
+                }
+            }
+            Spacer(Modifier.height(12.dp))
+            SettingsGroup { VaultSettingsRows() }
+        }
+    }
+}
+
+@Composable
+private fun VaultSettingsRows() {
+    val settings by Settings.state.collectAsState()
+    val hasPassword=settings.backup.vaultPassword.isNotEmpty()
+    var settingPassword by remember { mutableStateOf(false) }
+    var backupMenu by remember { mutableStateOf(false) }
+    var stopBackup by remember { mutableStateOf(false) }
+    com.kongye.docs.ui.screens.SettingRow("密码备份",if(hasPassword) "已开启" else "未设置") {
+        if(hasPassword) backupMenu=true else settingPassword=true
+    }
+    com.kongye.docs.ui.screens.SettingRow("密码填充",if(settings.vaultFill) "已开启" else "已关闭",last=true) { AppState.push(Screen.VaultFill) }
     if (settingPassword) VaultPasswordDialog(if (hasPassword) "修改备份密码" else "设置备份密码", onDismiss = { settingPassword = false }) { pw ->
         settingPassword = false
         Settings.updateBackup { it.copy(vaultPassword = pw) }
@@ -231,30 +312,12 @@ fun VaultPage() {
     }
 }
 
-/** 顶部的状态胶囊：图标、名称 · 状态、›；warn 时状态用提醒色（如还没设备份密码） */
-@Composable
-private fun StatusPill(icon: ImageVector, label: String, value: String, warn: Boolean = false, onClick: () -> Unit) {
-    Row(
-        Modifier.height(30.dp).clip(RoundedCornerShape(15.dp)).background(Kongye.Field)
-            .clickable(onClick = onClick)
-            .clearAndSetSemantics { contentDescription = "$label：$value"; role = Role.Button }
-            .padding(start = 10.dp, end = 6.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(icon, null, Modifier.size(14.dp), tint = Kongye.Icon2)
-        Spacer(Modifier.width(5.dp))
-        Text(label, fontSize = 13.sp, color = Kongye.Ink2)
-        Text(" · $value", fontSize = 13.sp, color = if (warn) Kongye.Danger else Kongye.Sub)
-        Icon(KongyeIcons.ChevronRight, null, Modifier.size(14.dp), tint = Kongye.Text4)
-    }
-}
-
-/** 列表里的一条：点一下查看全部字段（再点某一项复制），长按或 ⋮ 打开菜单（置顶、编辑、复制全部字段、删除） */
+/** 列表里的一条：点一下查看全部字段（再点某一项复制），长按打开菜单（收藏、编辑、复制全部字段、删除） */
 @Composable
 private fun VaultEntryRow(e: VaultEntry, now: Long, sheets: VaultSheets) {
     if (e.type == VaultType.OTP) {
         val code = codeOrNull(e, now)
-        VaultRow(e, KongyeIcons.Shield, onClick = { sheets.detailFor = e.id }, onLongClick = { sheets.menuFor = e }, onMore = { sheets.menuFor = e }) {
+        VaultRow(e, KongyeIcons.Shield, onClick = { sheets.detailFor = e.id }, onLongClick = { sheets.menuFor = e }) {
             if (code == null) Text("密钥无效", fontSize = 13.sp, color = Kongye.Danger)
             else {
                 val left = Totp.remaining(e.period, now)
@@ -269,25 +332,12 @@ private fun VaultEntryRow(e: VaultEntry, now: Long, sheets: VaultSheets) {
             }
         }
     } else {
-        var shown by remember(e.id) { mutableStateOf(false) }
-        VaultRow(e, KongyeIcons.Key, onClick = { sheets.detailFor = e.id }, onLongClick = { sheets.menuFor = e }, onMore = { sheets.menuFor = e }) {
-            Text(
-                if (e.password.isEmpty()) "未填写" else if (shown) e.password else "••••••",
-                Modifier.widthIn(max = 140.dp), fontSize = 15.sp,
-                color = if (e.password.isEmpty()) Kongye.Text4 else Kongye.Ink2,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-            )
-            if (e.password.isNotEmpty()) {
-                IconBtn(
-                    if (shown) KongyeIcons.EyeOff else KongyeIcons.Eye, { shown = !shown },
-                    tint = Kongye.Icon2, size = 36.dp, iconSize = 20.dp, description = if (shown) "隐藏密码" else "显示密码",
-                )
-            }
-        }
+        VaultRow(e, KongyeIcons.Key, onClick = { sheets.detailFor = e.id }, onLongClick = { sheets.menuFor = e }) {}
+
     }
 }
 
-/** 一条：左边圆形图标，中间名称和账号，右边验证码 / 密码，最右 ⋮；置顶的整行浅灰底、名称后带图钉（与我的桌面一致） */
+/** 一条：名称和账号、收藏标识；动态密码同时显示验证码。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun VaultRow(
@@ -295,25 +345,23 @@ private fun VaultRow(
     icon: ImageVector,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
-    onMore: () -> Unit,
     trailing: @Composable () -> Unit,
 ) {
     val layout = LocalKongyeLayout.current
     Column(Modifier.fillMaxWidth()) {
         Row(
-            Modifier.fillMaxWidth().heightIn(min = layout.itemHeight).background(if (e.pinned) Kongye.Pinned else Kongye.Surface)
+            Modifier.fillMaxWidth().heightIn(min = layout.itemHeight).background(Kongye.Surface)
                 .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-                .padding(start = layout.gutter, top = 4.dp, bottom = 4.dp),
+                .padding(start = layout.gutter, end = 12.dp, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.size(36.dp).clip(CircleShape).background(Kongye.Field), contentAlignment = Alignment.Center) {
-                Icon(icon, null, Modifier.size(20.dp), tint = Kongye.Ink2)
+                Icon(if(e.pinned) KongyeIcons.StarFilled else icon, if(e.pinned) "已收藏" else null, Modifier.size(20.dp), tint = Kongye.Ink2)
             }
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(e.name, Modifier.weight(1f, fill = false), fontSize = layout.rowText, color = Kongye.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    if (e.pinned) PinnedMark(Modifier.padding(start = 5.dp))
                 }
                 if (e.account.isNotEmpty()) {
                     Spacer(Modifier.height(3.dp))
@@ -321,7 +369,6 @@ private fun VaultRow(
                 }
             }
             trailing()
-            IconBtn(KongyeIcons.MoreV, onMore, tint = Kongye.Icon2, size = 40.dp, iconSize = 20.dp, description = "更多")
         }
         HLine(Modifier.padding(start = 70.dp), color = Kongye.Divider)
     }
@@ -347,14 +394,14 @@ private fun VaultEntrySheets(sheets: VaultSheets, beforeEdit: () -> Unit = {}) {
     val context = LocalContext.current
     val entries by VaultStore.entries.collectAsState()
     fun edit(e: VaultEntry) { beforeEdit(); AppState.push(Screen.VaultEdit(e.id, e.type)) }
-    // 长按 / ⋮：置顶、编辑、复制全部字段、删除
+    // 长按：收藏、编辑、复制全部字段、删除
     sheets.menuFor?.let { e ->
         ActionSheet(
             onDismiss = { sheets.menuFor = null },
             actions = listOf(
-                SheetAction(if (e.pinned) KongyeIcons.PinFilled else KongyeIcons.Pin, if (e.pinned) "取消置顶" else "置顶") {
+                SheetAction(if (e.pinned) KongyeIcons.StarFilled else KongyeIcons.Star, if (e.pinned) "取消收藏" else "收藏") {
                     runCatching { VaultStore.togglePin(e.id) }
-                        .onSuccess { Toast.done(if (e.pinned) "已取消置顶" else "已置顶") }
+                        .onSuccess { Toast.done(if (e.pinned) "已取消收藏" else "已收藏") }
                         .onFailure { Toast.show(it.message ?: "操作失败") }
                 },
                 SheetAction(KongyeIcons.Edit, "编辑") { edit(e) },
@@ -382,7 +429,7 @@ private class DetailLine(val label: String, val value: String, val masked: Boole
 
 /** 点开一条：列出全部字段，点哪一项就复制哪一项 */
 @Composable
-internal fun VaultDetailSheet(e: VaultEntry, onEdit: () -> Unit, onDismiss: () -> Unit) {
+internal fun VaultDetailSheet(e: VaultEntry, onEdit: () -> Unit, editable: Boolean = true, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val now = if (e.type == VaultType.OTP) ticker() else 0L
     val revealed = remember(e.id) { mutableStateMapOf<String, Boolean>() }
@@ -397,8 +444,8 @@ internal fun VaultDetailSheet(e: VaultEntry, onEdit: () -> Unit, onDismiss: () -
     val lines = buildList {
         if (e.type == VaultType.OTP) codeOrNull(e, now)?.let { add(DetailLine("验证码", it, masked = false, sensitive = true, display = grouped(it))) }
         // 与编辑页同样的顺序：账号、密码、（动态密码的）密钥，然后是自定义字段
-        add(DetailLine("账号", e.account, masked = false, sensitive = false))
-        add(DetailLine("密码", e.password, masked = true, sensitive = true))
+        add(DetailLine(e.accountLabel, e.account, masked = false, sensitive = false))
+        add(DetailLine(e.passwordLabel, e.password, masked = true, sensitive = true))
         if (e.type == VaultType.OTP) add(DetailLine("密钥", e.secret, masked = true, sensitive = true))
         add(DetailLine("网址", e.url, masked = false, sensitive = false))
         e.fields.forEach { add(DetailLine(it.label, it.value, masked = it.secret, sensitive = it.secret)) }
@@ -422,7 +469,7 @@ internal fun VaultDetailSheet(e: VaultEntry, onEdit: () -> Unit, onDismiss: () -
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Text(
+            if(editable) Text(
                 "编辑", Modifier.clip(RoundedCornerShape(6.dp)).clickable { dismiss(onEdit) }.padding(horizontal = 12.dp, vertical = 8.dp),
                 fontSize = 15.sp, color = Kongye.Link,
             )

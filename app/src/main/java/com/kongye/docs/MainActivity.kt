@@ -110,6 +110,7 @@ class MainActivity : ComponentActivity() {
     override fun onStart() {
         super.onStart()
         AutoBackup.runIfDue(this)
+        com.kongye.docs.data.CloudSync.request(this)
         if (updateCheck?.isActive != true) {
             updateCheck = lifecycleScope.launch {
                 try {

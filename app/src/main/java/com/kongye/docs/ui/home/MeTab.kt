@@ -130,6 +130,7 @@ fun MeTab(items: List<Item>) {
             val b = settings.backup
             SettingRow("本地备份", if (b.localEnabled) intervalLabel(b.intervalHours) + "自动" else null) { AppState.push(Screen.LocalBackup) }
             SettingRow("云端备份", if (b.davEnabled) intervalLabel(b.davIntervalHours) + "自动" else null) { AppState.push(Screen.CloudBackup) }
+            SettingRow("密码空间") { AppState.push(Screen.VaultSettings) }
             SettingRow("回收站", if (trashCount > 0) "$trashCount 个文件" else null, last = true) { AppState.push(Screen.Trash) }
         }
         Band()

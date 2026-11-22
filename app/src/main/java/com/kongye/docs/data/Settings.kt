@@ -16,6 +16,7 @@ enum class ThemeMode(val label: String) { SYSTEM("跟随系统"), LIGHT("浅色�
 /** 自动备份：本地文件夹与 WebDAV（云端）各自开关、各自的备份频率和保留时长 */
 @Serializable
 data class BackupSettings(
+    val cloudSync: Boolean = false,
     /** 本地：距上次备份满多少小时再备份 */
     val intervalHours: Int = 24,
     /** 本地：自动备份文件保留多少天，0 表示永久保留 */
