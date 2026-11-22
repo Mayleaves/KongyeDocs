@@ -99,11 +99,16 @@ object V225Regression {
                 touch(screenW * 0.5f, box(find("Example Co")!!).exactCenterY(), hold = 40)
                 waitFor("detail") { find("动态密码 · 点一项即可复制") != null }
                 val sheet = find("动态密码 · 点一项即可复制")!!.windowId
-                val order = listOf("验证码", "账号", "密码", "密钥", "备用码", "备注").map { l -> findIn(sheet, l)?.let { box(it).top } ?: error("Missing $l in detail") }
+                val labels = listOf("验证码", "账号", "密码", "密钥", "备用码", "备注")
+                waitFor("detail fields visible") { labels.all { findIn(sheet, it)?.isVisibleToUser == true } }
+                val order = labels.map { l -> findIn(sheet, l)?.let { box(it).top } ?: error("Missing $l in detail") }
                 check(order == order.sorted()) { "Detail order: $order" }
                 clickIn(sheet, "密码"); waitFor("password copied") { clipboard() == "Login#Pass1" }
-                Thread.sleep(300)
+                waitFor("copy confirmation visible inside detail") { findIn(sheet, "已复制密码")?.isVisibleToUser == true }
                 shot("v225-detail.png")
+                clickIn(sheet, "账号")
+                waitFor("copy confirmation updated") { clipboard() == "alice@example.com" && findIn(sheet, "已复制账号")?.isVisibleToUser == true }
+                waitFor("copy instruction restored") { findIn(sheet, "动态密码 · 点一项即可复制") != null }
                 passed("tap-opens-details-in-field-order")
 
                 // 编辑动态密码：名称、账号、密码、密钥、自定义字段、添加字段

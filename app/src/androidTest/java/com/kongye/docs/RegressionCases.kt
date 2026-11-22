@@ -65,11 +65,13 @@ object RegressionCases {
                 val template=Repository.saveAsTemplate("template","template",body("template-only"))
                 Repository.recordExport(ExportKind.TEXT,"export.txt",false,item.id,text="download-only")
                 Repository.setNickname("test nickname")
-                val text=Repository.exportBackup(); val backup=BackupCodec.decode(text)
-                requireTest(backup.version==2 && backup.versions[item.id]!!.isNotEmpty() && backup.templates[template.id]!!.bodyText()=="template-only", "History/template omitted")
-                requireTest(imageName in backup.images && backup.exportFiles.isNotEmpty() && backup.library?.nickname=="test nickname", "Attachment/download/metadata omitted")
-                // Reuse the same fixture in a clean subdirectory through a second context in the runner.
-                Repository.importBackup(text)
+                Repository.withBackupFile { file ->
+                    val backup = file.inputStream().use { BackupCodec.decode(it) }
+                    requireTest(backup.version==2 && backup.versions[item.id]!!.isNotEmpty() && backup.templates[template.id]!!.bodyText()=="template-only", "History/template omitted")
+                    requireTest(imageName in backup.images && backup.exportFiles.isNotEmpty() && backup.library?.nickname=="test nickname", "Attachment/download/metadata omitted")
+                    requireTest(file.readText() == BackupCodec.encode(backup), "Streamed backup differs from canonical v2 JSON")
+                    file.inputStream().use { Repository.importBackup(it) }
+                }
                 requireTest(Repository.templatePreview(template.id).bodyText()=="template-only" && Repository.versions(item.id).any { it.content==withImage }, "Full restore failed")
             }
             "checksum" -> {

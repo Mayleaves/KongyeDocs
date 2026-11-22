@@ -10,7 +10,10 @@ import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
 /** Local, synthetic WebDAV fixture. Never contacts a user's server. */
-class MockDav(private val fullPaths: Boolean = false) : AutoCloseable {
+class MockDav(
+    private val fullPaths: Boolean = false,
+    private val beforeResponse: (String) -> Unit = {},
+) : AutoCloseable {
     private val server=ServerSocket(0,10,java.net.InetAddress.getByName("127.0.0.1"))
     val port get() = server.localPort
     val files=ConcurrentHashMap<String,ByteArray>()
@@ -43,6 +46,7 @@ class MockDav(private val fullPaths: Boolean = false) : AutoCloseable {
         val name=path.substringAfterLast('/')
         val key=if(fullPaths) path else name
         requests += request[0] to path
+        beforeResponse(request[0])
         var code=200
         val data=when(request[0]) {
             "MKCOL" -> { code=405; byteArrayOf() }

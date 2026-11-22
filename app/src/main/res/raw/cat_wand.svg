@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="360" height="240">
+  <defs>
+    <!-- 图3猫咪眼部剪裁路径 -->
+    <clipPath id="left-eye-play">
+      <ellipse cx="83" cy="73" rx="8.5" ry="5.5" transform="rotate(6 83 73)" />
+    </clipPath>
+    <clipPath id="right-eye-play">
+      <ellipse cx="109" cy="73" rx="8.5" ry="5.5" transform="rotate(-6 109 73)" />
+    </clipPath>
+  </defs>
+
+  <g fill="#ffffff" stroke="#262626" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+
+    <!-- 图3的猫：垂在桌沿摇晃的蓬松大尾巴 -->
+    <path d="M 165 104 C 182 106, 192 118, 194 126 L 200 126 L 196 134 L 202 140 L 194 148 C 192 153, 184 155, 175 156 C 168 148, 166 132, 165 112 Z" />
+
+    <!-- 图3的猫：身体与头部轮廓 -->
+    <path data-role="body" d="M 66 70 
+             L 62 34 L 84 54 
+             Q 98 48 112 54 
+             L 134 34 L 130 66 
+             L 140 70 L 134 77 
+             C 156 79, 172 92, 176 106 
+             L 181 109 L 175 115 L 179 120 
+             L 72 120 
+             L 66 113 L 70 105 L 66 93 L 70 84 L 60 79 L 67 73 Z" />
+
+    <!-- 图3的猫：耳廓内侧线条 -->
+    <line x1="69" y1="46" x2="79" y2="59" stroke-width="2.4" />
+    <line x1="127" y1="46" x2="117" y2="59" stroke-width="2.4" />
+
+    <!-- 图3的猫：圆睁聚焦的猫眼与微蹙的眉心细节 -->
+    <ellipse cx="83" cy="73" rx="8.5" ry="5.5" transform="rotate(6 83 73)" stroke-width="2.5" />
+    <g clip-path="url(#left-eye-play)">
+      <ellipse cx="80" cy="71.5" rx="2.1" ry="6" fill="#262626" stroke="none" />
+    </g>
+    <ellipse cx="109" cy="73" rx="8.5" ry="5.5" transform="rotate(-6 109 73)" stroke-width="2.5" />
+    <g clip-path="url(#right-eye-play)">
+      <ellipse cx="105" cy="71.5" rx="2.1" ry="6" fill="#262626" stroke="none" />
+    </g>
+    <path d="M 88 66.5 L 91 68.5" fill="none" stroke-width="2.2" />
+    <path d="M 104 66.5 L 101 68.5" fill="none" stroke-width="2.2" />
+
+    <!-- 图3的猫：嘴巴与胡须 -->
+    <path d="M 91 83 L 96 79 L 101 83" fill="none" stroke-width="2.6" />
+    <line x1="57" y1="81" x2="70" y2="78" stroke-width="2.2" />
+    <line x1="58" y1="88" x2="71" y2="84" stroke-width="2.2" />
+    <line x1="123" y1="78" x2="137" y2="81" stroke-width="2.2" />
+    <line x1="122" y1="84" x2="136" y2="88" stroke-width="2.2" />
+
+    <!-- 图3的猫：后腿折线与稳住身体的右前爪 -->
+    <path d="M 142 120 C 142 106, 152 100, 162 100" fill="none" />
+    <path d="M 98 120 A 8 7 0 0 1 114 120 Z" />
+
+    <!-- 图3的猫：向上抬起拍击的左前爪（带肉垫细节与拍击动感线） -->
+    <path data-motion="WAND_PAW" d="M 74 102 C 56 96, 46 82, 52 74 C 57 68, 66 76, 72 88" />
+    <circle data-motion="WAND_PAW" cx="55" cy="79" r="1.3" fill="#262626" stroke="none" />
+    <path data-motion="WAND_PAW" d="M 42 84 Q 46 90 52 91" fill="none" stroke-width="2" />
+
+    <!-- 图4的小鱼干逗猫棒 -->
+    <path data-motion="WAND_ROD" d="M 10 16 Q 48 12 76 24" fill="none" stroke-width="3.2" />
+    <path data-motion="WAND_LURE" d="M 76 24 Q 62 34 49 44" fill="none" stroke-width="2" stroke-dasharray="3 3" />
+    <g transform="rotate(-18 42 56)">
+      <path data-motion="WAND_LURE" d="M 46 44 
+               L 53 36 L 48 45 L 55 42 L 47 48 
+               C 52 55, 49 66, 39 73 
+               C 36 63, 38 52, 46 44 Z" />
+      <path data-motion="WAND_LURE" d="M 38 64 Q 42 63 45 66" fill="none" stroke-width="2.2" />
+      <circle data-motion="WAND_LURE" cx="40.5" cy="68" r="1.4" fill="#262626" stroke="none" />
+    </g>
+    <!-- 图4小鱼干两侧的晃动动感线 -->
+    <path data-motion="WAND_LURE" d="M 25 52 Q 21 58 25 65" fill="none" stroke-width="2" />
+    <path data-motion="WAND_LURE" d="M 55 58 Q 59 63 56 69" fill="none" stroke-width="2" />
+  </g>
+</svg>

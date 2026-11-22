@@ -67,7 +67,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -109,6 +111,7 @@ import com.kongye.docs.ui.screens.SettingRow
 import com.kongye.docs.ui.screens.SettingsGroup
 import com.kongye.docs.ui.screens.SettingsTitle
 import com.kongye.docs.ui.theme.Kongye
+import com.kongye.docs.ui.theme.LocalKongyeLayout
 import com.kongye.docs.util.Share
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -295,11 +298,12 @@ private fun VaultRow(
     onMore: () -> Unit,
     trailing: @Composable () -> Unit,
 ) {
+    val layout = LocalKongyeLayout.current
     Column(Modifier.fillMaxWidth()) {
         Row(
-            Modifier.fillMaxWidth().height(70.dp).background(if (e.pinned) Kongye.Pinned else Kongye.Surface)
+            Modifier.fillMaxWidth().heightIn(min = layout.itemHeight).background(if (e.pinned) Kongye.Pinned else Kongye.Surface)
                 .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-                .padding(start = 20.dp),
+                .padding(start = layout.gutter, top = 4.dp, bottom = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Box(Modifier.size(36.dp).clip(CircleShape).background(Kongye.Field), contentAlignment = Alignment.Center) {
@@ -308,7 +312,7 @@ private fun VaultRow(
             Spacer(Modifier.width(14.dp))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(e.name, Modifier.weight(1f, fill = false), fontSize = 16.sp, color = Kongye.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(e.name, Modifier.weight(1f, fill = false), fontSize = layout.rowText, color = Kongye.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (e.pinned) PinnedMark(Modifier.padding(start = 5.dp))
                 }
                 if (e.account.isNotEmpty()) {
@@ -376,12 +380,20 @@ private fun VaultEntrySheets(sheets: VaultSheets, beforeEdit: () -> Unit = {}) {
 /** 详情里的一行：label 字段名，value 复制的内容；masked 先显示圆点；sensitive 复制时标记为敏感 */
 private class DetailLine(val label: String, val value: String, val masked: Boolean, val sensitive: Boolean, val display: String = value)
 
-/** 长按一条：列出全部字段，点哪一项就复制哪一项 */
+/** 点开一条：列出全部字段，点哪一项就复制哪一项 */
 @Composable
-private fun VaultDetailSheet(e: VaultEntry, onEdit: () -> Unit, onDismiss: () -> Unit) {
+internal fun VaultDetailSheet(e: VaultEntry, onEdit: () -> Unit, onDismiss: () -> Unit) {
     val context = LocalContext.current
     val now = if (e.type == VaultType.OTP) ticker() else 0L
     val revealed = remember(e.id) { mutableStateMapOf<String, Boolean>() }
+    var copiedField by remember(e.id) { mutableStateOf<String?>(null) }
+    var copyCount by remember(e.id) { mutableIntStateOf(0) }
+    LaunchedEffect(e.id, copyCount) {
+        if (copiedField != null) {
+            delay(2000)
+            copiedField = null
+        }
+    }
     val lines = buildList {
         if (e.type == VaultType.OTP) codeOrNull(e, now)?.let { add(DetailLine("验证码", it, masked = false, sensitive = true, display = grouped(it))) }
         // 与编辑页同样的顺序：账号、密码、（动态密码的）密钥，然后是自定义字段
@@ -399,7 +411,16 @@ private fun VaultDetailSheet(e: VaultEntry, onEdit: () -> Unit, onDismiss: () ->
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f)) {
                 Text(e.name, fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Kongye.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                Text(if (e.type == VaultType.OTP) "动态密码 · 点一项即可复制" else "密码 · 点一项即可复制", fontSize = 12.sp, color = Kongye.Text3)
+                val instruction = if (e.type == VaultType.OTP) "动态密码 · 点一项即可复制" else "密码 · 点一项即可复制"
+                val confirmation = copiedField?.let { "已复制$it" }
+                Text(
+                    confirmation ?: instruction,
+                    Modifier.semantics { liveRegion = LiveRegionMode.Polite },
+                    fontSize = 12.sp,
+                    color = if (confirmation != null) Kongye.Ink else Kongye.Text3,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
             Text(
                 "编辑", Modifier.clip(RoundedCornerShape(6.dp)).clickable { dismiss(onEdit) }.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -414,6 +435,8 @@ private fun VaultDetailSheet(e: VaultEntry, onEdit: () -> Unit, onDismiss: () ->
                 Row(
                     Modifier.fillMaxWidth().clickable {
                         if (line.sensitive) Share.copySecret(context, line.label, line.value) else Share.copy(context, line.label, line.value)
+                        copiedField = line.label
+                        copyCount++
                         Toast.done("已复制${line.label}")
                     }.padding(start = 20.dp, end = 8.dp, top = 11.dp, bottom = 11.dp),
                     verticalAlignment = Alignment.CenterVertically,
@@ -501,12 +524,13 @@ fun VaultSearchOverlay() {
                     .background(Kongye.Surface).statusBarsPadding(),
             ) {
                 Row(
-                    Modifier.fillMaxWidth().height(56.dp).padding(start = 16.dp, end = 4.dp),
+                    Modifier.fillMaxWidth().heightIn(min = LocalKongyeLayout.current.barHeight)
+                        .padding(start = 16.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Row(
-                        Modifier.weight(1f).height(36.dp).clip(RoundedCornerShape(6.dp)).background(Kongye.Field)
-                            .padding(start = 10.dp, end = 4.dp),
+                        Modifier.weight(1f).heightIn(min = 36.dp).clip(RoundedCornerShape(6.dp)).background(Kongye.Field)
+                            .padding(start = 10.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(KongyeIcons.Search, null, Modifier.size(18.dp), tint = Kongye.Icon2)
@@ -520,7 +544,7 @@ fun VaultSearchOverlay() {
                             modifier = Modifier.weight(1f).focusRequester(focus),
                             decorationBox = { inner ->
                                 Box(contentAlignment = Alignment.CenterStart) {
-                                    if (query.isEmpty()) Text("搜索名称、账号、网址、备注", fontSize = 15.sp, color = Kongye.Sub)
+                                    if (query.isEmpty()) Text("搜索名称、账号、网址、备注", fontSize = 15.sp, color = Kongye.Sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     inner()
                                 }
                             },

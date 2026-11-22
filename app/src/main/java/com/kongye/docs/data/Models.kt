@@ -161,7 +161,7 @@ data class Backup(
     val version: Int = 1,
     val exportedAt: Long = System.currentTimeMillis(),
     val nickname: String = "我",
-    val items: List<Item> = emptyList(),
+    @kotlinx.serialization.Required val items: List<Item> = emptyList(),
     val docs: Map<String, DocContent> = emptyMap(),
     val images: Map<String, String> = emptyMap(),
     val library: Library? = null,

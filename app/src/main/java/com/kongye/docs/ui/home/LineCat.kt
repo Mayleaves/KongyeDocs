@@ -92,7 +92,7 @@ private const val GROUND = 103f
 private const val DP_PER_UNIT = 0.7f
 internal const val CAT_W = UNITS_W * DP_PER_UNIT
 internal const val CAT_H = UNITS_H * DP_PER_UNIT
-internal const val CAT_GROUND = (GROUND - Y0) * DP_PER_UNIT
+internal const val CAT_GROUND_WIDTH_FRACTION = (GROUND - Y0) / UNITS_W
 
 /** 点小猫（或它自己闲着）时的小动作，以及各自持续的秒数 */
 private enum class CatAct(val seconds: Float) {
@@ -167,6 +167,9 @@ fun LineCat(part: DayPart, messages: () -> List<String>, modifier: Modifier = Mo
     val steam = remember(resources) { loadCatSvg(resources,com.kongye.docs.R.raw.cat_steam) }
     val yawn = remember(resources) { loadYawnSvg(resources) }
     val props = remember(resources) { loadCatProps(resources) }
+    val snore = remember(resources) { loadCatArtwork(resources,com.kongye.docs.R.raw.cat_snore) }
+    val wand = remember(resources) { loadCatArtwork(resources,com.kongye.docs.R.raw.cat_wand) }
+    val mouse = remember(resources) { loadCatArtwork(resources,com.kongye.docs.R.raw.cat_mouse) }
     val haptic = LocalHapticFeedback.current
     // 动画时钟（秒），只在绘制时读取，不会引起重组
     val clock = produceState(0f) {
@@ -235,7 +238,7 @@ fun LineCat(part: DayPart, messages: () -> List<String>, modifier: Modifier = Mo
                         CatAct.YAWN -> "小猫，打呵欠"
                         CatAct.WAND -> "小猫，扑逗猫棒"
                         CatAct.MOUSE -> "小猫，拨小老鼠"
-                        else -> "小猫"
+                        else -> if(part==DayPart.NIGHT && act==null) "小猫，打呼噜" else "小猫"
                     }
                     customActions = listOf("打呵欠" to CatAct.YAWN,"扑逗猫棒" to CatAct.WAND,"拨小老鼠" to CatAct.MOUSE).map { (label,action) ->
                         androidx.compose.ui.semantics.CustomAccessibilityAction(label) { lastTap=clock.value; start(action); true }
@@ -260,7 +263,14 @@ fun LineCat(part: DayPart, messages: () -> List<String>, modifier: Modifier = Mo
             withTransform({
                 scale(k, k, pivot = Offset.Zero)
                 translate(-X0, -Y0)
-            }) { drawCat(part, a, p, t, ink, bg, pink, bowl, yarn, steam, yawn, props) }
+            }) {
+                when {
+                    a==CatAct.WAND -> drawCatArtwork(wand,120f,sin(p*4f*PI.toFloat()),ink,bg)
+                    a==CatAct.MOUSE -> drawCatArtwork(mouse,125f,sin(p*4f*PI.toFloat()),ink,bg)
+                    part==DayPart.NIGHT && a==null -> drawCatArtwork(snore,120f,sin(t*1.8f),ink,bg)
+                    else -> drawCat(part, a, p, t, ink, bg, pink, bowl, yarn, steam, yawn, props)
+                }
+            }
         }
         // 小猫说的话：气泡贴在它脑袋左边，尖角指向它，不占布局
         Box(

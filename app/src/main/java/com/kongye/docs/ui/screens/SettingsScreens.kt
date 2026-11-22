@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -52,6 +53,7 @@ import com.kongye.docs.ui.components.KongyeSwitch
 import com.kongye.docs.ui.components.Toast
 import com.kongye.docs.ui.components.TopBar
 import com.kongye.docs.ui.theme.Kongye
+import com.kongye.docs.ui.theme.LocalKongyeLayout
 import com.kongye.docs.util.formatTime
 import kotlinx.coroutines.launch
 
@@ -64,34 +66,47 @@ internal fun SettingsGroup(content: @Composable ColumnScope.() -> Unit) {
 
 @Composable
 internal fun SettingsTitle(text: String) {
-    Text(text, Modifier.padding(start = 20.dp, top = 18.dp, bottom = 8.dp), fontSize = 13.sp, color = Kongye.Text3)
+    val layout = LocalKongyeLayout.current
+    Text(text, Modifier.padding(horizontal = layout.gutter, vertical = layout.groupGap), fontSize = 13.sp, color = Kongye.Text3)
 }
 
 @Composable
 internal fun SettingRow(label: String, value: String? = null, last: Boolean = false, valueColor: androidx.compose.ui.graphics.Color = Kongye.Sub, showChevron: Boolean = true, onClick: () -> Unit) {
+    val layout = LocalKongyeLayout.current
     Column(Modifier.fillMaxWidth().clickable(onClick = onClick)) {
-        Row(Modifier.fillMaxWidth().height(54.dp).padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(label, fontSize = 16.sp, color = Kongye.Ink)
-            Spacer(Modifier.width(16.dp))
-            Text(
-                value.orEmpty(), Modifier.weight(1f), fontSize = 15.sp, color = valueColor,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.End,
-            )
-            Spacer(Modifier.width(6.dp))
-            if (showChevron) Icon(KongyeIcons.ChevronRight, null, Modifier.size(18.dp), tint = Kongye.Text4)
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = layout.rowHeight).padding(horizontal = layout.gutter, vertical = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, Modifier.weight(1f), fontSize = layout.rowText, color = Kongye.Ink)
+            if (!value.isNullOrBlank()) {
+                Spacer(Modifier.width(8.dp))
+                Text(
+                    value, Modifier.weight(1.4f), fontSize = layout.rowText, color = valueColor,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                )
+            }
+            if (showChevron) {
+                Spacer(Modifier.width(6.dp))
+                Icon(KongyeIcons.ChevronRight, null, Modifier.size(18.dp), tint = Kongye.Text4)
+            }
         }
-        if (!last) HLine(Modifier.padding(horizontal = 20.dp), color = Kongye.Divider)
+        if (!last) HLine(Modifier.padding(horizontal = layout.gutter), color = Kongye.Divider)
     }
 }
 
 @Composable
 internal fun SwitchRow(label: String, checked: Boolean, onChange: (Boolean) -> Unit) {
+    val layout = LocalKongyeLayout.current
     Column(Modifier.fillMaxWidth().clickable { onChange(!checked) }) {
-        Row(Modifier.fillMaxWidth().height(56.dp).padding(start = 20.dp, end = 14.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(label, Modifier.weight(1f), fontSize = 16.sp, color = Kongye.Ink)
+        Row(
+            Modifier.fillMaxWidth().heightIn(min = layout.rowHeight).padding(start = layout.gutter, end = 14.dp, top = 6.dp, bottom = 6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(label, Modifier.weight(1f), fontSize = layout.rowText, color = Kongye.Ink)
             KongyeSwitch(checked, onChange)
         }
-        HLine(Modifier.padding(horizontal = 20.dp), color = Kongye.Divider)
+        HLine(Modifier.padding(horizontal = layout.gutter), color = Kongye.Divider)
     }
 }
 
@@ -102,7 +117,8 @@ internal fun <T> ChoiceSheet(title: String, options: List<Pair<T, String>>, sele
         Text(title, Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 12.dp), fontSize = 17.sp, fontWeight = FontWeight.SemiBold, color = Kongye.Text, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         options.forEach { (v, label) ->
             Row(
-                Modifier.fillMaxWidth().height(54.dp).clickable { dismiss { onPick(v) } }.padding(horizontal = 20.dp),
+                Modifier.fillMaxWidth().heightIn(min = LocalKongyeLayout.current.rowHeight)
+                    .clickable { dismiss { onPick(v) } }.padding(horizontal = LocalKongyeLayout.current.gutter, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(label, Modifier.weight(1f), fontSize = 16.sp, color = if (v == selected) Kongye.Primary else Kongye.Text)
@@ -139,7 +155,8 @@ fun ThemeSheet(onDismiss: () -> Unit) {
         HLine(color = Kongye.Divider)
         listOf(ThemeMode.SYSTEM, ThemeMode.LIGHT, ThemeMode.DARK, ThemeMode.SCHEDULE).forEachIndexed { i, m ->
             Row(
-                Modifier.fillMaxWidth().height(56.dp).clickable { Settings.update { it.copy(theme = m) } }.padding(horizontal = 24.dp),
+                Modifier.fillMaxWidth().heightIn(min = LocalKongyeLayout.current.rowHeight)
+                    .clickable { Settings.update { it.copy(theme = m) } }.padding(horizontal = 24.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(m.label, Modifier.weight(1f), fontSize = 16.sp, color = if (st.theme == m) Kongye.Primary else Kongye.Text)

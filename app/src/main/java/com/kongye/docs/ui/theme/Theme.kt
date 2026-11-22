@@ -9,10 +9,26 @@ import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+
+internal class KongyeLayout(val compact: Boolean) {
+    val gutter = if (compact) 16.dp else 20.dp
+    val groupGap = if (compact) 8.dp else 12.dp
+    val barHeight = if (compact) 48.dp else 56.dp
+    val rowHeight = if (compact) 48.dp else 54.dp
+    val itemHeight = if (compact) 60.dp else 70.dp
+    val headerText = if (compact) 18.sp else 20.sp
+    val rowText = if (compact) 15.sp else 16.sp
+}
+
+internal val LocalKongyeLayout = staticCompositionLocalOf { KongyeLayout(false) }
 
 /**
  * 全部界面颜色。每个颜色都有浅色、深色两个取值，按 [dark] 返回；
@@ -113,6 +129,13 @@ fun KongyeTheme(content: @Composable () -> Unit) {
         bodySmall = typography.bodySmall.copy(color = Kongye.Text3),
         labelLarge = typography.labelLarge.copy(color = Kongye.Text),
     )) {
-        CompositionLocalProvider(LocalContentColor provides Kongye.Text, content = content)
+        val window = LocalConfiguration.current
+        val compact = window.screenWidthDp < 400 || window.screenHeightDp < 720
+        val layout = remember(compact) { KongyeLayout(compact) }
+        CompositionLocalProvider(
+            LocalContentColor provides Kongye.Text,
+            LocalKongyeLayout provides layout,
+            content = content,
+        )
     }
 }

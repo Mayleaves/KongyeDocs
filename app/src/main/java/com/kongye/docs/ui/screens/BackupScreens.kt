@@ -32,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kongye.docs.data.AutoBackup
 import com.kongye.docs.data.BackupEntry
-import com.kongye.docs.data.Repository
 import com.kongye.docs.data.Settings
 import com.kongye.docs.ui.AppState
 import com.kongye.docs.ui.components.ActionSheet
@@ -44,13 +43,10 @@ import com.kongye.docs.ui.components.InputDialog
 import com.kongye.docs.ui.components.Toast
 import com.kongye.docs.ui.components.TopBar
 import com.kongye.docs.ui.theme.Kongye
-import com.kongye.docs.util.Share
 import com.kongye.docs.util.formatTime
 import com.kongye.docs.util.sizeText
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -74,7 +70,7 @@ private fun Hint(text: String, color: Color = Kongye.Text3) {
 @Composable
 private fun BackupStatus(enabled: Boolean, last: Long, error: String) {
     when {
-        error.isNotEmpty() -> Hint("上次自动备份失败：$error", Kongye.Danger)
+        error.isNotEmpty() -> Hint("上次自动备份失败：${AutoBackup.displayError(error)}", Kongye.Danger)
         last > 0 -> Hint("上次自动备份：${formatTime(last)}")
         enabled -> Hint("还没有自动备份过")
     }
@@ -116,15 +112,10 @@ private fun RestoreConfirm(entry: BackupEntry, onDismiss: () -> Unit, onConfirm:
     )
 }
 
-/** 读取备份内容并导入 */
-private fun CoroutineScope.restore(read: suspend () -> String?) = launch {
-    val text = runCatching { read() }.getOrElse {
-        Toast.show("读取备份失败：" + AutoBackup.describe(it))
-        return@launch
-    }
-    runCatching { withContext(Dispatchers.IO) { Repository.importBackup(text ?: error("备份为空")) } }
+private fun CoroutineScope.restore(local: Boolean = true, readAndRestore: suspend () -> Int) = launch {
+    runCatching { readAndRestore() }
         .onSuccess { Toast.done("已恢复 $it 篇文档") }
-        .onFailure { Toast.show("恢复失败，原文件已保留：" + AutoBackup.describe(it)) }
+        .onFailure { Toast.show("恢复失败，原文件已保留：" + if (local) AutoBackup.describeLocal(it) else AutoBackup.describe(it)) }
 }
 
 private fun manualFileName() = AutoBackup.MANUAL_PREFIX + SimpleDateFormat("yyyyMMdd-HHmmss", Locale.US).format(Date()) + ".json"
@@ -151,7 +142,7 @@ fun LocalBackupScreen() {
     var deletePick by remember { mutableStateOf<Pair<BackupEntry, Boolean>?>(null) }
     var deletingBackup by remember { mutableStateOf(false) }
     var reloadKey by remember { mutableStateOf(0) }
-    var pendingImport by remember { mutableStateOf<String?>(null) }
+    var pendingImport by remember { mutableStateOf<Uri?>(null) }
     LaunchedEffect(Unit) { safetyBackups = AutoBackup.listSafety(context) }
     // 从开关进入选文件夹时，选好后顺便打开自动备份
     var enableAfterPick by remember { mutableStateOf(false) }
@@ -163,7 +154,7 @@ fun LocalBackupScreen() {
         }
         runCatching { AutoBackup.listLocal(context) }
             .onSuccess { backups = it; listError = "" }
-            .onFailure { backups = emptyList(); listError = AutoBackup.describe(it) }
+            .onFailure { backups = emptyList(); listError = AutoBackup.describeLocal(it) }
     }
 
     // 选择备份文件夹：取得长期读写权限；开启了自动备份的话马上备份一次
@@ -183,21 +174,18 @@ fun LocalBackupScreen() {
         AutoBackup.runIfDue(context)
     }
     val saveAs = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri != null) scope.launch {
-            runCatching {
-                withContext(Dispatchers.IO) {
-                    val text = Repository.exportBackup()
-                    check(Share.writeText(context, uri, text)) { "无法写入备份" }
-                    check(Share.readText(context, uri) == text) { "备份回读校验失败" }
-                }
-            }.onSuccess { Toast.done("备份已保存并校验") }.onFailure { Toast.show("备份失败：${it.message}") }
+        if (uri != null) {
+            busy = true
+            scope.launch {
+                runCatching { AutoBackup.backupLocalAs(context, uri) }
+                    .onSuccess { Toast.done("备份已保存并校验"); reloadKey++ }
+                    .onFailure { Toast.show("备份失败：" + AutoBackup.describeLocal(it)) }
+                busy = false
+            }
         }
     }
     val openFile = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) scope.launch {
-            pendingImport = withContext(Dispatchers.IO) { Share.readText(context, uri) }
-            if (pendingImport == null) Toast.show("无法读取备份")
-        }
+        if (uri != null) pendingImport = uri
     }
 
     Column(Modifier.fillMaxSize().background(Kongye.Band)) {
@@ -229,15 +217,17 @@ fun LocalBackupScreen() {
                             runCatching { AutoBackup.backupLocalNow(context) }
                                 .onSuccess {
                                     Toast.done("已备份到 ${s.localName}")
-                                    backups = runCatching { AutoBackup.listLocal(context) }.getOrDefault(backups)
+                                    reloadKey++
                                 }
-                                .onFailure { Toast.show("备份失败：" + AutoBackup.describe(it)) }
+                                .onFailure { Toast.show("备份失败：" + AutoBackup.describeLocal(it)) }
                             busy = false
                         }
                     }
-                    SettingRow("另存到其他位置", last = true) { saveAs.launch(manualFileName()) }
+                    SettingRow("另存到其他位置", last = true) { if (!busy) saveAs.launch(manualFileName()) }
                 } else {
-                    SettingRow("立即备份", "选择保存位置", last = true, showChevron = false) { saveAs.launch(manualFileName()) }
+                    SettingRow("立即备份", if (busy) "正在备份…" else "选择保存位置", last = true, showChevron = false) {
+                        if (!busy) saveAs.launch(manualFileName())
+                    }
                 }
             }
 
@@ -284,19 +274,19 @@ fun LocalBackupScreen() {
     restoring?.let { e ->
         RestoreConfirm(e, onDismiss = { restoring = null }) {
             restoring = null
-            scope.restore { AutoBackup.readLocal(context, e) }
+            scope.restore { AutoBackup.restoreLocal(context, e) }
         }
     }
-    pendingImport?.let { text ->
+    pendingImport?.let { uri ->
         ConfirmDialog(title = "从文件恢复", message = "同一篇文档会被备份覆盖。恢复前会保留当前数据的安全副本。", confirmText = "恢复", onDismiss = { pendingImport = null }, onConfirm = {
             pendingImport = null
-            scope.restore { text }
+            scope.restore { AutoBackup.restoreFile(context, uri) }
         })
     }
     safetyPick?.let { entry ->
         RestoreConfirm(entry, onDismiss = { safetyPick = null }) {
             safetyPick = null
-            scope.restore { AutoBackup.readSafety(context, entry) }
+            scope.restore { AutoBackup.restoreSafety(context, entry) }
         }
     }
 }
@@ -437,14 +427,19 @@ fun CloudBackupScreen() {
         RestoreConfirm(e, onDismiss = { restoring = null }) {
             restoring = null
             Toast.show("正在下载备份…")
-            scope.restore { AutoBackup.readDav(e) }
+            scope.restore(local = false) { AutoBackup.restoreDav(e) }
         }
     }
     editing?.let { field ->
         val close = { editing = null }
         when (field) {
             DavField.URL -> InputDialog(
-                "服务器地址", s.davUrl, "https://dav.jianguoyun.com/dav/", keyboardType = KeyboardType.Uri, onDismiss = close,
+                title = "服务器地址",
+                initial = s.davUrl,
+                placeholder = "https://",
+                keyboardType = KeyboardType.Uri,
+                supportingText = "坚果云示例  https://dav.jianguoyun.com/dav/",
+                onDismiss = close,
             ) { v -> close(); davTest = null; Settings.updateBackup { it.copy(davUrl = AutoBackup.normalizeUrl(v), davError = "") } }
             DavField.USER -> InputDialog("账号", s.davUser, "通常是邮箱或用户名", allowEmpty = true, keyboardType = KeyboardType.Email, onDismiss = close) { v ->
                 close(); davTest = null; Settings.updateBackup { it.copy(davUser = v.trim(), davError = "") }

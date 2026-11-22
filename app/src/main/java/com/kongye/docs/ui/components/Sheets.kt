@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.sp
 import com.kongye.docs.data.Item
 import com.kongye.docs.data.Repository
 import com.kongye.docs.ui.theme.Kongye
+import com.kongye.docs.ui.theme.LocalKongyeLayout
 import kotlinx.coroutines.launch
 
 class SheetAction(
@@ -81,7 +82,10 @@ fun BottomSheet(
         scrimColor = Kongye.Mask,
         dragHandle = null,
     ) {
-        content(dismiss)
+        androidx.compose.runtime.CompositionLocalProvider(LocalToastLevel provides LocalToastLevel.current + 1) {
+            content(dismiss)
+            ToastHost()
+        }
     }
 }
 
@@ -101,7 +105,7 @@ fun ActionSheet(
         }
         Box(Modifier.fillMaxWidth().height(8.dp).background(Kongye.Bg2))
         Box(
-            Modifier.fillMaxWidth().height(54.dp).clickable { dismiss {} },
+            Modifier.fillMaxWidth().heightIn(min = LocalKongyeLayout.current.rowHeight).clickable { dismiss {} }.padding(vertical = 6.dp),
             contentAlignment = Alignment.Center,
         ) { Text("取消", fontSize = 16.sp, color = Kongye.Text2) }
     }
@@ -109,15 +113,16 @@ fun ActionSheet(
 
 @Composable
 fun SheetRow(icon: ImageVector?, label: String, danger: Boolean = false, trailing: String? = null, onClick: () -> Unit) {
+    val layout = LocalKongyeLayout.current
     Row(
-        Modifier.fillMaxWidth().height(54.dp).clickable(onClick = onClick).padding(horizontal = 20.dp),
+        Modifier.fillMaxWidth().heightIn(min = layout.rowHeight).clickable(onClick = onClick).padding(horizontal = layout.gutter, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
             Icon(icon, null, Modifier.size(22.dp), tint = if (danger) Kongye.Danger else Kongye.Text2)
             Spacer(Modifier.width(14.dp))
         }
-        Text(label, Modifier.weight(1f), fontSize = 16.sp, color = if (danger) Kongye.Danger else Kongye.Text)
+        Text(label, Modifier.weight(1f), fontSize = layout.rowText, color = if (danger) Kongye.Danger else Kongye.Text)
         if (trailing != null) Text(trailing, fontSize = 14.sp, color = Kongye.Text3)
     }
 }
@@ -160,7 +165,7 @@ fun CreateSheet(onDismiss: () -> Unit, options: List<CreateOption>) {
         }
         Spacer(Modifier.height(16.dp))
         Box(Modifier.fillMaxWidth().height(8.dp).background(Kongye.Bg2))
-        Box(Modifier.fillMaxWidth().height(54.dp).clickable { dismiss {} }, contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxWidth().heightIn(min = LocalKongyeLayout.current.rowHeight).clickable { dismiss {} }.padding(vertical = 6.dp), contentAlignment = Alignment.Center) {
             Text("取消", fontSize = 16.sp, color = Kongye.Text2)
         }
     }

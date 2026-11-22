@@ -11,12 +11,16 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -32,6 +36,7 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -41,17 +46,26 @@ import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import com.kongye.docs.ui.theme.Kongye
+import com.kongye.docs.ui.theme.LocalKongyeLayout
 import kotlinx.coroutines.delay
 
 @Composable
 internal fun DialogFrame(onDismiss: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     Dialog(onDismissRequest = onDismiss) {
-        Column(Modifier.width(300.dp).clip(RoundedCornerShape(14.dp)).background(Kongye.Surface), content = content)
+        androidx.compose.runtime.CompositionLocalProvider(LocalToastLevel provides LocalToastLevel.current + 1) {
+        Column(
+            Modifier.widthIn(max = 360.dp).fillMaxWidth().clip(RoundedCornerShape(14.dp))
+                .background(Kongye.Surface).verticalScroll(rememberScrollState()),
+            content = content,
+        )
+        ToastHost()
+        }
     }
 }
 
@@ -69,12 +83,13 @@ internal fun DialogButtons(
     confirmColor: Color,
     confirmEnabled: Boolean = true,
     onCancel: (() -> Unit)?,
-    topSpacing: Dp = 20.dp,
+    topSpacing: Dp = LocalKongyeLayout.current.groupGap + 4.dp,
     onConfirm: () -> Unit,
 ) {
     Spacer(Modifier.height(topSpacing))
     HLine()
-    Row(Modifier.fillMaxWidth().height(50.dp)) {
+    val buttonHeight = maxOf(LocalKongyeLayout.current.rowHeight, (32 * LocalDensity.current.fontScale).dp)
+    Row(Modifier.fillMaxWidth().height(buttonHeight)) {
         if (onCancel != null) {
             Box(Modifier.weight(1f).fillMaxHeight().clickable(onClick = onCancel), contentAlignment = Alignment.Center) {
                 Text("取消", fontSize = 16.sp, color = Kongye.Text2)
@@ -100,6 +115,7 @@ fun InputDialog(
     /** 密码：输入内容显示为圆点 */
     password: Boolean = false,
     keyboardType: KeyboardType = KeyboardType.Text,
+    supportingText: String? = null,
     onDismiss: () -> Unit,
     onConfirm: (String) -> Unit,
 ) {
@@ -121,16 +137,24 @@ fun InputDialog(
             ),
             keyboardActions = KeyboardActions(onDone = { if (ok) onConfirm(value.text) }),
             visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
-            modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().height(44.dp)
+            modifier = Modifier.padding(horizontal = 20.dp).fillMaxWidth().heightIn(min = 44.dp)
                 .border(1.dp, if (focused) Kongye.Primary else Kongye.Line2, RoundedCornerShape(8.dp))
                 .focusRequester(focus).onFocusChanged { focused = it.isFocused },
             decorationBox = { inner ->
-                Box(Modifier.padding(horizontal = 12.dp), contentAlignment = Alignment.CenterStart) {
-                    if (value.text.isEmpty()) Text(placeholder, fontSize = 16.sp, color = Kongye.Text4)
+                Box(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), contentAlignment = Alignment.CenterStart) {
+                    if (value.text.isEmpty()) {
+                        Text(placeholder, fontSize = 16.sp, color = Kongye.Text4, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    }
                     inner()
                 }
             },
         )
+        if (supportingText != null) {
+            Text(
+                supportingText, Modifier.padding(start = 20.dp, end = 20.dp, top = 8.dp),
+                fontSize = 12.sp, lineHeight = 17.sp, color = Kongye.Text3,
+            )
+        }
         DialogButtons(confirmText, Kongye.Primary, ok, onDismiss) { onConfirm(value.text) }
     }
     LaunchedEffect(Unit) {

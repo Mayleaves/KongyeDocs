@@ -76,6 +76,7 @@ import com.kongye.docs.ui.home.SelectionBar
 import com.kongye.docs.ui.home.SelectionHeader
 import com.kongye.docs.ui.itemSubtitle
 import com.kongye.docs.ui.theme.Kongye
+import com.kongye.docs.ui.theme.LocalKongyeLayout
 import com.kongye.docs.util.formatTime
 import kotlinx.coroutines.delay
 
@@ -159,15 +160,16 @@ fun TrashScreen() {
 
 @Composable
 fun TemplatesScreen(parentId: String?) {
+    val layout = LocalKongyeLayout.current
     val mine by Repository.userTemplates.collectAsState()
     var deleting by remember { mutableStateOf<UserTemplate?>(null) }
     Column(Modifier.fillMaxSize().background(Kongye.Surface)) {
         TopBar(title = "模板库", onBack = { AppState.pop() })
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 32.dp),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            columns = GridCells.Adaptive(132.dp),
+            contentPadding = PaddingValues(start = layout.gutter, end = layout.gutter, top = 8.dp, bottom = 32.dp),
+            horizontalArrangement = Arrangement.spacedBy(layout.groupGap),
+            verticalArrangement = Arrangement.spacedBy(layout.groupGap),
             modifier = Modifier.fillMaxSize(),
         ) {
             if (mine.isNotEmpty()) {

@@ -73,6 +73,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -99,6 +100,7 @@ import com.kongye.docs.ui.components.SheetAction
 import com.kongye.docs.ui.components.Toast
 import com.kongye.docs.ui.locationOf
 import com.kongye.docs.ui.theme.Kongye
+import com.kongye.docs.ui.theme.LocalKongyeLayout
 import com.kongye.docs.util.Share
 import com.kongye.docs.util.formatFullTime
 import kotlinx.coroutines.Dispatchers
@@ -449,20 +451,28 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
         LocalKeepEditorPanel provides (panel!=null && !returningToKeyboard && editor.commentDraft==null),
         LocalEditorTextTap provides { if(!panelPinned && panel!=null) returnToKeyboard() },
     ) {
+    val layout = LocalKongyeLayout.current
     Column(Modifier.fillMaxSize().background(Kongye.Surface)) {
         // ---------- 顶栏 ----------
         if (editor.findMode) {
             FindTopBar(editor) { editor.closeFind() }
         } else {
             Column(Modifier.fillMaxWidth().background(Kongye.Surface).statusBarsPadding()) {
-                Box(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 6.dp)) {
-                    if (editing) IconBtn(KongyeIcons.Check, ::finishEditing, Modifier.align(Alignment.CenterStart), tint = doneBlue, iconSize = 26.dp, description = "完成")
-                    else IconBtn(KongyeIcons.Back, { AppState.pop() }, Modifier.align(Alignment.CenterStart), tint = Kongye.Ink2, description = "返回")
-                    if(settings.autoLocalVersion) Text(
-                        if (editor.isSaved) "文档将自动保存" else "正在保存…", Modifier.align(Alignment.Center),
-                        fontSize = 12.sp, color = Kongye.Sub,
-                    )
-                    Row(Modifier.align(Alignment.CenterEnd)) {
+                Row(
+                    Modifier.fillMaxWidth().heightIn(min = layout.barHeight).padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (editing) IconBtn(KongyeIcons.Check, ::finishEditing, tint = doneBlue, iconSize = 26.dp, description = "完成")
+                    else IconBtn(KongyeIcons.Back, { AppState.pop() }, tint = Kongye.Ink2, description = "返回")
+                    if (settings.autoLocalVersion) {
+                        Text(
+                            if (editor.isSaved) "文档将自动保存" else "正在保存…",
+                            Modifier.weight(1f).padding(horizontal = 6.dp),
+                            fontSize = 12.sp, color = Kongye.Sub, textAlign = TextAlign.Center,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        )
+                    } else Spacer(Modifier.weight(1f))
+                    Row {
                         // 已置顶的文档在顶栏显示图钉，点一下取消置顶
                         if (item?.pinned == true) {
                             IconBtn(KongyeIcons.PinFilled, {
@@ -498,7 +508,8 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                 }
             }
         } else Modifier)) {
-            Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = DocRenderer.SIDE_DP.dp)) {
+            val gutter = if (layout.compact) layout.gutter else DocRenderer.SIDE_DP.dp
+            Column(Modifier.fillMaxSize().verticalScroll(scroll).padding(horizontal = gutter)) {
                 Spacer(Modifier.height(22.dp))
                 key(editor.inputGeneration) {
                 val titleGeneration=editor.inputGeneration

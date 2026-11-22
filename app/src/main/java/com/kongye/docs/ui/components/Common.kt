@@ -16,9 +16,11 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -35,6 +37,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -61,7 +66,19 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.kongye.docs.data.Item
 import com.kongye.docs.ui.theme.Kongye
+import com.kongye.docs.ui.theme.LocalKongyeLayout
 import kotlinx.coroutines.delay
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntRect
+import androidx.compose.ui.unit.IntSize
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.compose.ui.window.Popup
+import androidx.compose.ui.window.PopupPositionProvider
+import androidx.compose.ui.window.PopupProperties
+import androidx.compose.animation.core.MutableTransitionState
 
 // ---------------- 文件图标 ----------------
 
@@ -151,7 +168,7 @@ fun TopBar(
 ) {
     Column(Modifier.fillMaxWidth().background(Kongye.Surface).statusBarsPadding()) {
         Row(
-            Modifier.fillMaxWidth().height(52.dp).padding(horizontal = 6.dp),
+            Modifier.fillMaxWidth().heightIn(min = LocalKongyeLayout.current.barHeight).padding(horizontal = 6.dp, vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) IconBtn(KongyeIcons.Back, onBack, description = "返回") else Spacer(Modifier.width(10.dp))
@@ -190,19 +207,20 @@ fun FileRow(
     selected: Boolean? = null,
 ) {
     val pinned = item.pinned && item.deletedAt == null
+    val layout = LocalKongyeLayout.current
     Row(
-        modifier.fillMaxWidth().height(70.dp).background(if (pinned) Kongye.Pinned else Kongye.Surface)
+        modifier.fillMaxWidth().heightIn(min = layout.itemHeight).background(if (pinned) Kongye.Pinned else Kongye.Surface)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .padding(start = 22.dp),
+            .padding(start = layout.gutter),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // 列表模式下收藏直接画在图标上（左上角的蓝色书签带）
         FileIcon(item.isFolder, 30.dp, starred = item.starred && item.deletedAt == null)
         Spacer(Modifier.width(16.dp))
         Row(
-            Modifier.weight(1f).fillMaxSize().drawBehind {
+            Modifier.weight(1f).heightIn(min = layout.itemHeight).drawBehind {
                 drawLine(Kongye.Divider, Offset(0f, size.height), Offset(size.width, size.height), 2f)
-            },
+            }.padding(vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Column(Modifier.weight(1f)) {
@@ -210,7 +228,7 @@ fun FileRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
                         titleOverride ?: item.displayTitle, Modifier.weight(1f, fill = false),
-                        fontSize = 16.sp, color = Kongye.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        fontSize = layout.rowText, color = Kongye.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     )
                     if (pinned) PinnedMark(Modifier.padding(start = 5.dp))
                 }
@@ -274,7 +292,7 @@ fun FileCard(
 ) {
     val pinned = item.pinned && item.deletedAt == null
     Column(
-        modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
+        modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(8.dp))
             .background(if (selected == true) Kongye.PrimarySoft else if (pinned) Kongye.Pinned else Color.Transparent)
             .combinedClickable(onClick = onClick, onLongClick = onLongClick)
             .padding(start = 12.dp, top = 2.dp, bottom = 10.dp),
@@ -293,15 +311,14 @@ fun FileCard(
             )
             if (pinned) PinnedMark(Modifier.padding(start = 5.dp))
         }
-        Box(Modifier.fillMaxWidth().padding(end = 12.dp).height(156.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxWidth().weight(1f).padding(end = 12.dp), contentAlignment = Alignment.Center) {
             if (item.isFolder) {
                 FileIcon(true, 92.dp)
             } else {
                 // 文档一律显示正文预览；没有文字时也保留预览区，淡淡地写“无内容”
                 Text(
-                    item.preview.ifBlank { "无内容" }, Modifier.fillMaxSize().padding(top = 12.dp),
-                    fontSize = 12.sp, lineHeight = 18.sp,
-                    color = if (item.preview.isBlank()) Kongye.Text4 else Kongye.Text4,
+                    item.preview.ifBlank { "无内容" }, Modifier.fillMaxSize().padding(top = 8.dp),
+                    fontSize = 12.sp, lineHeight = 17.sp, color = Kongye.Text4,
                     maxLines = 6, overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -377,13 +394,27 @@ object Toast {
     fun clear() { message = null }
 }
 
+internal val LocalToastLevel = staticCompositionLocalOf { 0 }
+private class ToastOwner(val level: Int)
+private val toastOwners = mutableStateListOf<ToastOwner>()
+
+/** Attach to the foremost app window; a sheet/dialog has its own Android window. */
 @Composable
 fun ToastHost() {
+    val level = LocalToastLevel.current
+    val owner = remember(level) { ToastOwner(level) }
+    DisposableEffect(owner) {
+        toastOwners += owner
+        onDispose { toastOwners.remove(owner) }
+    }
+    val foremost = toastOwners.maxByOrNull { it.level }?.let { top ->
+        toastOwners.lastOrNull { it.level == top.level }
+    } === owner
     val key = Toast.key
     val msg = Toast.message
     val success = Toast.success
-    LaunchedEffect(key) {
-        if (msg != null) {
+    LaunchedEffect(key, foremost) {
+        if (foremost && msg != null) {
             delay(if (success) 1500 else 2000)
             Toast.clear()
         }
@@ -392,11 +423,22 @@ fun ToastHost() {
     var shown by remember { mutableStateOf("" to false) }
     if (msg != null) shown = msg to success
     val (text, centered) = shown
-    Box(
-        Modifier.fillMaxSize().navigationBarsPadding().padding(bottom = if (centered) 0.dp else 120.dp),
-        contentAlignment = if (centered) Alignment.Center else Alignment.BottomCenter,
+    if (!foremost) return
+    val density = LocalDensity.current
+    val bottom = WindowInsets.navigationBars.getBottom(density) + with(density) { 120.dp.roundToPx() }
+    val position = remember(centered, bottom) {
+        object : PopupPositionProvider {
+            override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection, popupContentSize: IntSize) =
+                IntOffset((windowSize.width-popupContentSize.width)/2,
+                    (if(centered) (windowSize.height-popupContentSize.height)/2 else windowSize.height-popupContentSize.height-bottom).coerceAtLeast(0))
+        }
+    }
+    val visible = remember { MutableTransitionState(false) }.apply { targetState = msg != null }
+    if (visible.currentState || visible.targetState) Popup(
+        popupPositionProvider = position,
+        properties = PopupProperties(focusable = false, dismissOnBackPress = false, dismissOnClickOutside = false),
     ) {
-        AnimatedVisibility(visible = msg != null, enter = fadeIn(), exit = fadeOut()) {
+        AnimatedVisibility(visibleState = visible, enter = fadeIn(), exit = fadeOut()) {
             if (centered) {
                 Column(
                     Modifier.widthIn(min = 132.dp, max = 240.dp).clip(RoundedCornerShape(14.dp)).background(Color(0xF0505459))
@@ -419,7 +461,7 @@ fun ToastHost() {
             } else {
                 Text(
                     text,
-                    Modifier.clip(RoundedCornerShape(20.dp)).background(Color(0xE61F2329))
+                    Modifier.widthIn(max = 320.dp).clip(RoundedCornerShape(20.dp)).background(Color(0xE61F2329))
                         .padding(horizontal = 18.dp, vertical = 10.dp),
                     color = Color.White, fontSize = 14.sp,
                 )

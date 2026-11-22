@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 160" width="360" height="240">
+  <defs>
+    <!-- 图1猫咪眼部剪裁路径 -->
+    <clipPath id="left-eye-hunt">
+      <ellipse cx="78" cy="78" rx="8.5" ry="5.2" transform="rotate(8 78 78)" />
+    </clipPath>
+    <clipPath id="right-eye-hunt">
+      <ellipse cx="106" cy="78" rx="8.5" ry="5.2" transform="rotate(-6 106 78)" />
+    </clipPath>
+  </defs>
+
+  <g fill="#ffffff" stroke="#262626" stroke-width="3.2" stroke-linecap="round" stroke-linejoin="round">
+    
+    <!-- 图2的老鼠（置于底层，尾巴延伸至图1猫爪下方） -->
+    <path data-motion="MOUSE_TOY" d="M 38 123 C 48 125, 56 119, 63 123" fill="none" stroke-width="2.2" />
+    <path data-motion="MOUSE_TOY" d="M 8 124 C 10 119, 15 115, 21 114 C 29 111, 38 115, 39 125 L 9 125 Z" />
+    <circle data-motion="MOUSE_TOY" cx="17" cy="113" r="4" />
+    <circle data-motion="MOUSE_TOY" cx="22" cy="112" r="4.8" />
+    <circle data-motion="MOUSE_TOY" cx="8" cy="124" r="1.6" fill="#262626" stroke="none" />
+    <circle data-motion="MOUSE_TOY" cx="15" cy="119.5" r="1.3" fill="#262626" stroke="none" />
+    <line data-motion="MOUSE_TOY" x1="9" y1="122" x2="3" y2="119" stroke-width="1.5" />
+    <line data-motion="MOUSE_TOY" x1="9" y1="124" x2="2" y2="124" stroke-width="1.5" />
+    <!-- 图2老鼠头顶的惊慌动感线 -->
+    <path data-motion="MOUSE_TOY" d="M 10 105 Q 13 102 17 104" fill="none" stroke-width="1.8" />
+    <path data-motion="MOUSE_TOY" d="M 5 110 Q 7 107 11 108" fill="none" stroke-width="1.8" />
+
+    <!-- 图1的猫：高高竖起的蓬松大尾巴 -->
+    <path d="M 168 102 C 185 88, 198 62, 195 45 L 204 49 L 202 35 L 212 42 C 216 65, 206 90, 198 98 L 204 103 L 190 112 C 182 114, 174 112, 165 110 Z" />
+
+    <!-- 图1的猫：压低扑击的身体与头部轮廓 -->
+    <path data-role="body" d="M 62 72 
+             L 56 38 L 78 58 
+             Q 92 52 106 58 
+             L 126 38 L 122 68 
+             L 132 72 L 126 78 
+             C 152 78, 172 90, 176 105 
+             L 182 108 L 175 114 L 180 120 L 172 125 
+             L 72 125 
+             L 64 118 L 69 110 L 63 98 L 67 88 L 57 82 L 64 76 Z" />
+
+    <!-- 图1的猫：耳廓内侧线条 -->
+    <line x1="63" y1="50" x2="73" y2="63" stroke-width="2.4" />
+    <line x1="119" y1="50" x2="109" y2="63" stroke-width="2.4" />
+
+    <!-- 图1的猫：聚精会神的猫眼与压低的内眼角眉线 -->
+    <ellipse cx="78" cy="78" rx="8.5" ry="5.2" transform="rotate(8 78 78)" stroke-width="2.5" />
+    <g clip-path="url(#left-eye-hunt)">
+      <ellipse cx="75.2" cy="79" rx="1.9" ry="6" fill="#262626" stroke="none" />
+    </g>
+    <ellipse cx="106" cy="78" rx="8.5" ry="5.2" transform="rotate(-6 106 78)" stroke-width="2.5" />
+    <g clip-path="url(#right-eye-hunt)">
+      <ellipse cx="101.8" cy="79" rx="1.9" ry="6" fill="#262626" stroke="none" />
+    </g>
+    <path d="M 70 72 L 85 75.5" fill="none" stroke-width="2.8" />
+    <path d="M 114 72 L 99 75.5" fill="none" stroke-width="2.8" />
+
+    <!-- 图1的猫：嘴巴与胡须 -->
+    <path d="M 87 88 L 92 84 L 97 88" fill="none" stroke-width="2.6" />
+    <line x1="53" y1="84" x2="67" y2="82" stroke-width="2.2" />
+    <line x1="54" y1="91" x2="68" y2="88" stroke-width="2.2" />
+    <line x1="117" y1="82" x2="131" y2="84" stroke-width="2.2" />
+    <line x1="116" y1="88" x2="130" y2="91" stroke-width="2.2" />
+
+    <!-- 图1的猫：后腿折线与右前爪 -->
+    <path d="M 142 125 C 142 110, 152 104, 162 104" fill="none" />
+    <path d="M 92 125 A 8 7 0 0 1 108 125 Z" />
+
+    <!-- 图1的猫：伸出按住老鼠尾巴的左前爪与动感线 -->
+    <path data-motion="MOUSE_PAW" d="M 68 114 C 52 112, 42 116, 40 125 L 72 125" />
+    <line data-motion="MOUSE_PAW" x1="38" y1="120" x2="43" y2="122" stroke-width="2" />
+    <line data-motion="MOUSE_PAW" x1="37" y1="124" x2="42" y2="125" stroke-width="2" />
+    <path data-motion="MOUSE_PAW" d="M 46 102 Q 52 105 54 110" fill="none" stroke-width="2" />
+    <path data-motion="MOUSE_PAW" d="M 38 106 Q 43 108 45 113" fill="none" stroke-width="2" />
+  </g>
+</svg>

@@ -22,6 +22,7 @@ import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import java.io.File
+import java.io.InputStream
 import java.util.concurrent.ConcurrentHashMap
 import java.io.IOException
 
@@ -746,7 +747,7 @@ object Repository {
     // ---------- 备份 ----------
 
     @Synchronized
-    fun exportBackup(vault: VaultBackup? = VaultStore.backupPayload()): String {
+    private fun writeBackup(target: File, vault: VaultBackup?) {
         writable()
         val items = _items.value
         val docs = items.filter { it.isDoc }.associate { it.id to loadDoc(it.id) }
@@ -758,29 +759,46 @@ object Repository {
                 require(BackupCodec.validImage(name)) { "非法图片引用" }
                 val f = File(imagesDir, name)
                 require(f.isFile) { "文档引用的图片丢失：$name，未生成备份" }
-                Base64.encodeToString(f.readBytes(), Base64.NO_WRAP)
+                f
             }
         val files = _exports.value.associate { record ->
             require(BackupCodec.validId(record.id)) { "非法下载记录" }
             val file = exportFile(record)
             require(file.isFile) { "下载副本丢失，请先清理该下载记录再备份" }
-            file.name to Base64.encodeToString(file.readBytes(), Base64.NO_WRAP)
+            file.name to file
         }
-        return BackupCodec.encode(Backup(nickname = _nickname.value, items = items, docs = docs, images = images,
-            library = library().copy(revision = revision), versions = history, templates = templates, exportRecords = _exports.value, exportFiles = files, revision = revision,
-            vault = vault))
+        val snapshot = Backup(nickname = _nickname.value, items = items, docs = docs,
+            library = library().copy(revision = revision), versions = history, templates = templates,
+            exportRecords = _exports.value, revision = revision, vault = vault)
+        BackupCodec.write(snapshot, images, files, target)
     }
 
+    internal fun <T> withBackupFile(vault: VaultBackup? = VaultStore.backupPayload(), use: (File) -> T): T {
+        val file = File.createTempFile("kongye-backup-", ".tmp", app.cacheDir)
+        try {
+            writeBackup(file, vault)
+            return use(file)
+        } finally {
+            file.delete()
+        }
+    }
+
+    fun exportBackup(vault: VaultBackup? = VaultStore.backupPayload()): String = withBackupFile(vault) { it.readText() }
+
     /** 导入备份：同 id 的条目会被覆盖，其余保留；返回导入的文档数（不算回收站里的） */
+    fun importBackup(text: String): Int = importBackup(BackupCodec.decode(text))
+
+    fun importBackup(input: InputStream): Int = importBackup(BackupCodec.decode(input))
+
     @Synchronized
-    fun importBackup(text: String): Int {
-        val backup = BackupCodec.decode(text) // Validate the entire input before touching any current data.
+    private fun importBackup(backup: Backup): Int {
         val safety = File(app.filesDir, "recovery").apply { mkdirs() }
         val safetyName = "恢复前备份-${System.currentTimeMillis()}-${newId()}"
         if (!isReadOnly) {
-            val snapshot = runCatching { exportBackup() }.getOrNull()
-            if (snapshot != null) DurableFiles.write(File(safety, "$safetyName.json"), snapshot)
-            else preserveRaw(File(safety, safetyName))
+            val saved = runCatching {
+                withBackupFile { snapshot -> DurableFiles.writeCopy(File(safety, "$safetyName.json"), snapshot, keepPrevious = false) }
+            }.isSuccess
+            if (!saved) preserveRaw(File(safety, safetyName))
         } else preserveRaw(File(safety, safetyName))
 
         val renamed = backup.images.mapValues { (name, data) ->

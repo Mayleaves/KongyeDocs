@@ -41,6 +41,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -69,6 +70,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -93,6 +95,7 @@ import com.kongye.docs.ui.components.KongyeIcons
 import com.kongye.docs.ui.components.SheetRow
 import com.kongye.docs.ui.components.Toast
 import com.kongye.docs.ui.theme.Kongye
+import com.kongye.docs.ui.theme.LocalKongyeLayout
 import com.kongye.docs.ui.vault.VaultPage
 import com.kongye.docs.util.dateHeader
 import com.kongye.docs.util.stampTime
@@ -129,16 +132,24 @@ fun HomeScreen() {
 fun SelectionHeader(allIds: List<String>) {
     val selected = AppState.selection.orEmpty()
     val all = allIds.isNotEmpty() && allIds.all { it in selected }
-    Box(Modifier.fillMaxWidth().background(Kongye.Surface).statusBarsPadding().height(56.dp).padding(horizontal = 6.dp)) {
+    Row(
+        Modifier.fillMaxWidth().background(Kongye.Surface).statusBarsPadding()
+            .heightIn(min = LocalKongyeLayout.current.barHeight).padding(horizontal = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         Text(
-            "取消", Modifier.align(Alignment.CenterStart).clip(RoundedCornerShape(8.dp)).clickable { AppState.endSelection() }
+            "取消", Modifier.clip(RoundedCornerShape(8.dp)).clickable { AppState.endSelection() }
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             fontSize = 16.sp, color = Kongye.Ink2,
         )
-        Text("已选择 ${selected.size} 项", Modifier.align(Alignment.Center), fontSize = 17.sp, fontWeight = FontWeight.Medium, color = Kongye.Ink)
+        Text(
+            "已选择 ${selected.size} 项", Modifier.weight(1f),
+            fontSize = 17.sp, fontWeight = FontWeight.Medium, color = Kongye.Ink,
+            maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+        )
         Text(
             if (all) "全不选" else "全选",
-            Modifier.align(Alignment.CenterEnd).clip(RoundedCornerShape(8.dp))
+            Modifier.clip(RoundedCornerShape(8.dp))
                 .clickable { AppState.selection = if (all) emptySet() else allIds.toSet() }
                 .padding(horizontal = 14.dp, vertical = 8.dp),
             fontSize = 16.sp, color = Kongye.Bookmark,
@@ -252,6 +263,7 @@ fun ItemCollection(
     firstHeaderTrailing: (@Composable () -> Unit)? = null,
     onReorder: ((List<Item>) -> Unit)? = null,
 ) {
+    val layout = LocalKongyeLayout.current
     val reorder = remember { ReorderState() }
     // 拖动中按临时顺序显示；换位只发生在同一组内，各组条数不变，标题（如“置顶”、日期）留在原处
     val shown = reorder.order?.let { order ->
@@ -371,12 +383,12 @@ fun ItemCollection(
 
     if (useGrid) {
         LazyVerticalGrid(
-            columns = GridCells.Fixed(2),
+            columns = GridCells.Adaptive(140.dp),
             modifier = Modifier.fillMaxSize().then(gestures),
             state = gridState,
             // 左右留白相等、两列之间留 10dp：置顶卡片和多选高亮的灰底 / 蓝底不会贴在一起
             contentPadding = PaddingValues(start = GRID_SIDE, end = GRID_SIDE, bottom = 96.dp),
-            verticalArrangement = Arrangement.spacedBy(14.dp),
+            verticalArrangement = Arrangement.spacedBy(layout.groupGap),
             horizontalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             if (top != null) item(key = "top", span = { GridItemSpan(maxLineSpan) }) { top(20.dp - GRID_SIDE) }
@@ -420,7 +432,7 @@ fun ItemCollection(
 @Composable
 private fun DateHeader(title: String, inset: Dp, trailing: (@Composable () -> Unit)?) {
     Row(
-        Modifier.fillMaxWidth().height(48.dp).padding(start = inset, end = 8.dp),
+        Modifier.fillMaxWidth().heightIn(min = LocalKongyeLayout.current.rowHeight).padding(start = inset, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(title, Modifier.weight(1f), fontSize = 15.sp, color = Kongye.Ink2)
@@ -446,7 +458,7 @@ fun SortRow(
     trailing: @Composable () -> Unit,
 ) {
     var show by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().height(50.dp).padding(start = inset, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.fillMaxWidth().heightIn(min = LocalKongyeLayout.current.rowHeight).padding(start = inset, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
         Row(
             Modifier.clip(RoundedCornerShape(6.dp)).clickable { show = true }.padding(vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -493,24 +505,27 @@ fun SortSheet(current: SortSpec, modes: List<SortMode>, onDismiss: () -> Unit, o
 /** 一级页面的顶栏：左侧标题内容，右侧搜索 */
 @Composable
 private fun PageHeader(onSearch: () -> Unit = { AppState.searchOpen = true }, content: @Composable RowScope.() -> Unit) {
+    val layout = LocalKongyeLayout.current
     Row(
-        Modifier.fillMaxWidth().statusBarsPadding().height(56.dp).padding(start = 20.dp, end = 8.dp),
+        Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = layout.barHeight).padding(start = layout.gutter, end = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        content()
-        Spacer(Modifier.weight(1f))
+        Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically, content = content)
         IconBtn(KongyeIcons.Search, onSearch, tint = Kongye.Ink2, iconSize = 24.dp, description = "搜索")
     }
 }
 
 /** 页面顶部的分栏标题（首页的最近 / 收藏 / 创建，文件页的我的桌面 / 密码空间） */
 @Composable
-private fun HeaderTab(label: String, selected: Boolean, onClick: () -> Unit) {
+private fun RowScope.HeaderTab(label: String, selected: Boolean, onClick: () -> Unit) {
+    val layout = LocalKongyeLayout.current
     Text(
         label,
-        Modifier.clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClick)
-            .padding(end = 22.dp, top = 8.dp, bottom = 8.dp),
-        fontSize = 20.sp,
+        Modifier.weight(1f, fill = false)
+            .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+            .padding(end = layout.groupGap, top = 8.dp, bottom = 8.dp),
+        fontSize = layout.headerText,
+        maxLines = 1, overflow = TextOverflow.Ellipsis,
         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
         color = if (selected) Kongye.Ink else Kongye.TabOff,
     )
@@ -664,7 +679,7 @@ fun FolderContents(folderId: String?, items: List<Item>) {
 fun BottomTabs(active: Tab, onSelect: (Tab) -> Unit) {
     Column(Modifier.fillMaxWidth().background(Kongye.Surface).navigationBarsPadding()) {
         HLine(color = Kongye.Divider)
-        Row(Modifier.fillMaxWidth().height(56.dp)) {
+        Row(Modifier.fillMaxWidth()) {
             NavItem("首页", KongyeIcons.NavHome, active == Tab.HOME) { onSelect(Tab.HOME) }
             NavItem("文件", KongyeIcons.NavFiles, active == Tab.FILES) { onSelect(Tab.FILES) }
             NavItem("我的", KongyeIcons.NavMe, active == Tab.ME) { onSelect(Tab.ME) }
@@ -675,12 +690,13 @@ fun BottomTabs(active: Tab, onSelect: (Tab) -> Unit) {
 @Composable
 private fun RowScope.NavItem(label: String, icon: ImageVector, selected: Boolean, onClick: () -> Unit) {
     Column(
-        Modifier.weight(1f).fillMaxHeight()
-            .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClick),
+        Modifier.weight(1f).heightIn(min = LocalKongyeLayout.current.barHeight)
+            .clickable(remember { MutableInteractionSource() }, indication = null, onClick = onClick)
+            .padding(vertical = 4.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(icon, label, Modifier.size(25.dp), tint = if (selected) Kongye.Ink2 else Kongye.NavOff)
+        Icon(icon, label, Modifier.size(22.dp), tint = if (selected) Kongye.Ink2 else Kongye.NavOff)
         Spacer(Modifier.height(2.dp))
         Text(label, fontSize = 11.sp, color = if (selected) Kongye.Ink2 else Kongye.TabOff)
     }

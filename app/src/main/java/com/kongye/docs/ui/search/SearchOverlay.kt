@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -75,6 +76,7 @@ import com.kongye.docs.ui.components.HLine
 import com.kongye.docs.ui.components.IconBtn
 import com.kongye.docs.ui.components.KongyeIcons
 import com.kongye.docs.ui.theme.Kongye
+import com.kongye.docs.ui.theme.LocalKongyeLayout
 import com.kongye.docs.util.stampTime
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -135,7 +137,8 @@ fun SearchOverlay() {
                     .background(Kongye.Surface).statusBarsPadding(),
             ) {
                 Row(
-                    Modifier.fillMaxWidth().height(56.dp).padding(start = 6.dp, end = 4.dp),
+                    Modifier.fillMaxWidth().heightIn(min = LocalKongyeLayout.current.barHeight)
+                        .padding(start = 6.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // 齿轮在搜索框左边；设置了范围时变蓝，提醒结果是筛选过的
@@ -146,8 +149,8 @@ fun SearchOverlay() {
                     )
                     Spacer(Modifier.width(2.dp))
                     Row(
-                        Modifier.weight(1f).height(36.dp).clip(RoundedCornerShape(6.dp)).background(Kongye.Field)
-                            .padding(start = 10.dp, end = 4.dp),
+                        Modifier.weight(1f).heightIn(min = 36.dp).clip(RoundedCornerShape(6.dp)).background(Kongye.Field)
+                            .padding(start = 10.dp, end = 4.dp, top = 3.dp, bottom = 3.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         Icon(KongyeIcons.Search, null, Modifier.size(18.dp), tint = Kongye.Icon2)
@@ -161,7 +164,7 @@ fun SearchOverlay() {
                             modifier = Modifier.weight(1f).focusRequester(focus),
                             decorationBox = { inner ->
                                 Box(contentAlignment = Alignment.CenterStart) {
-                                    if (query.isEmpty()) Text("搜索文件、文件夹", fontSize = 15.sp, color = Kongye.Sub)
+                                    if (query.isEmpty()) Text("搜索文件、文件夹", fontSize = 15.sp, color = Kongye.Sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
                                     inner()
                                 }
                             },

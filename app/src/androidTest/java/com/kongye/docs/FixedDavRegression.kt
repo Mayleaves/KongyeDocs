@@ -1,13 +1,20 @@
 package com.kongye.docs
 
 import android.app.Instrumentation
+import android.net.Uri
 import android.os.SystemClock
 import android.view.accessibility.AccessibilityNodeInfo
 import com.kongye.docs.data.*
 import com.kongye.docs.ui.AppState
 import com.kongye.docs.ui.Screen
 import com.kongye.docs.ui.Tab
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 internal object FixedDavRegression {
     fun run(inst: Instrumentation, pass: (String) -> Unit) {
@@ -55,6 +62,31 @@ internal object FixedDavRegression {
                     check(Settings.value.backup.lastDav > 0 && Settings.value.backup.davError.isEmpty())
                     check(server.requests.filter { it.first == "PUT" }.all { it.second.startsWith("/KongyeDocs/") })
                     pass("scheduled-backup-also-uses-KongyeDocs")
+                }
+
+                val uploading = CountDownLatch(1)
+                val releaseUpload = CountDownLatch(1)
+                MockDav(fullPaths = true, beforeResponse = { method ->
+                    if (method == "PUT") {
+                        uploading.countDown()
+                        releaseUpload.await(30, TimeUnit.SECONDS)
+                    }
+                }).use { server ->
+                    Settings.updateBackup { it.copy(davUrl = "http://127.0.0.1:${server.port}/", davEnabled = false) }
+                    val localCopy = File.createTempFile("local-backup-", ".json", context.cacheDir)
+                    val cloud = async(Dispatchers.IO) { AutoBackup.backupDavNow() }
+                    try {
+                        check(uploading.await(10, TimeUnit.SECONDS)) { "Cloud upload did not start" }
+                        withTimeout(8_000) { AutoBackup.backupLocalAs(context, Uri.fromFile(localCopy)) }
+                        check(!cloud.isCompleted) { "Local backup waited for the cloud upload" }
+                        val saved = localCopy.inputStream().use { BackupCodec.decode(it) }
+                        check(saved.items == Repository.items.value)
+                        pass("manual-local-backup-finishes-while-cloud-upload-is-blocked")
+                    } finally {
+                        releaseUpload.countDown()
+                        localCopy.delete()
+                    }
+                    cloud.await()
                 }
             }
             Settings.updateBackup { it.copy(davEnabled = false, davUrl = "") }

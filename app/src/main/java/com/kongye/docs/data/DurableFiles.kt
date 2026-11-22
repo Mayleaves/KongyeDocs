@@ -25,11 +25,17 @@ object DurableFiles {
 
     fun write(file: File, text: String) = write(file, text.toByteArray(Charsets.UTF_8))
 
-    fun write(file: File, bytes: ByteArray, keepPrevious: Boolean = true) {
+    fun write(file: File, bytes: ByteArray, keepPrevious: Boolean = true) =
+        write(file, keepPrevious) { it.write(bytes) }
+
+    fun writeCopy(file: File, source: File, keepPrevious: Boolean = true) =
+        write(file, keepPrevious) { output -> source.inputStream().use { it.copyTo(output) } }
+
+    private fun write(file: File, keepPrevious: Boolean, writeContents: (FileOutputStream) -> Unit) {
         val parent = requireNotNull(file.parentFile)
         check(parent.isDirectory || parent.mkdirs()) { "无法创建数据目录" }
         val next = File(parent, file.name + ".new")
-        FileOutputStream(next).use { it.write(bytes); it.fd.sync() }
+        FileOutputStream(next).use { writeContents(it); it.fd.sync() }
         if (keepPrevious && file.isFile) {
             val previous = File(parent, file.name + ".bak.new")
             file.inputStream().use { input -> FileOutputStream(previous).use { out -> input.copyTo(out); out.fd.sync() } }
@@ -71,14 +77,14 @@ object DurableFiles {
                 val current = target(root, path)
                 if (current.exists()) {
                     require(current.isFile) { "数据目标不是文件" }
-                    write(target(File(txn, "old"), path), current.readBytes(), false)
+                    writeCopy(target(File(txn, "old"), path), current, false)
                 }
                 write(target(File(txn, "next"), path), bytes, false)
                 Entry(path, current.isFile)
             }
             write(File(txn, "journal.json"), json.encodeToString(Journal(entries)))
             prepared = true
-            entries.forEach { entry -> write(target(root, entry.path), target(File(txn, "next"), entry.path).readBytes()) }
+            entries.forEach { entry -> writeCopy(target(root, entry.path), target(File(txn, "next"), entry.path)) }
             write(File(txn, "committed"), "ok")
         } catch (error: Exception) {
             if (prepared) {
@@ -98,7 +104,7 @@ object DurableFiles {
             val entries = json.decodeFromString<Journal>(journal.readText()).entries
             entries.forEach { entry ->
                 val file = target(root, entry.path)
-                if (entry.existed) write(file, target(File(txn, "old"), entry.path).readBytes(), false)
+                if (entry.existed) writeCopy(file, target(File(txn, "old"), entry.path), false)
                 else {
                     check(!file.exists() || file.delete()) { "无法回滚恢复操作" }
                     File(file.parentFile, file.name + ".bak").delete()
