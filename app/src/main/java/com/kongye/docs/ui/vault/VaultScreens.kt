@@ -169,6 +169,9 @@ fun VaultPage() {
     val problem by VaultStore.problem.collectAsState()
     val settings by Settings.state.collectAsState()
     val sheets = remember { VaultSheets() }
+    val sort=VaultSort.read(settings.vaultSortMode)
+    val descending=settings.vaultSortDescending ?: (sort!=VaultSort.ALPHABET)
+    var sorting by remember { mutableStateOf(false) }
     val categories=listOf("收藏","动态密码","普通密码")
     val pager=rememberPagerState(initialPage=2) { categories.size }
     val scope=rememberCoroutineScope()
@@ -202,10 +205,17 @@ fun VaultPage() {
                 Icon(KongyeIcons.ChevronRight,null,Modifier.padding(start=3.dp).size(15.dp),tint=Kongye.Link)
             }
         }
-        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=5.dp),horizontalArrangement=Arrangement.SpaceBetween) {
+        Row(Modifier.fillMaxWidth().padding(horizontal=16.dp,vertical=2.dp),verticalAlignment=Alignment.CenterVertically) {
             Text("共 $categoryCount 个${if(pager.targetPage==1) "动态密码" else "密码"}",fontSize=12.sp,color=Kongye.Sub)
+            Spacer(Modifier.weight(1f))
             if(settings.backup.cloudSync) Text(if(sync.conflicts.isNotEmpty()) "${sync.conflicts.size} 项同步冲突" else sync.message.ifEmpty { "同步" },
-                Modifier.clickable { if(sync.conflicts.isNotEmpty()) com.kongye.docs.ui.screens.SyncUi.conflicts=true else com.kongye.docs.data.CloudSync.request(context) },fontSize=12.sp,color=Kongye.Link)
+                Modifier.widthIn(max=110.dp).padding(end=12.dp).clickable { if(sync.conflicts.isNotEmpty()) com.kongye.docs.ui.screens.SyncUi.conflicts=true else com.kongye.docs.data.CloudSync.request(context) },fontSize=12.sp,color=Kongye.Link,maxLines=1,overflow=TextOverflow.Ellipsis)
+            Row(Modifier.clip(RoundedCornerShape(6.dp)).clickable { sorting=true }
+                .semantics { contentDescription="密码排序：${sort.label}" }.padding(vertical=9.dp),verticalAlignment=Alignment.CenterVertically) {
+                Icon(if(descending) KongyeIcons.ArrowDown else KongyeIcons.ArrowUp,sort.direction(descending),Modifier.padding(end=4.dp).size(14.dp),tint=Kongye.Text2)
+                Text(sort.label,fontSize=12.sp,color=Kongye.Text2)
+                Icon(KongyeIcons.ChevronDown,null,Modifier.padding(start=3.dp).size(14.dp),tint=Kongye.Text3)
+            }
         }
         HorizontalPager(pager,Modifier.fillMaxSize(),userScrollEnabled=!AppState.vaultIndexDragging) { page ->
             val filtered=remember(entries,page) { entries.filter { when(page) {
@@ -214,21 +224,23 @@ fun VaultPage() {
                 else -> !it.pinned && it.type==VaultType.PASSWORD
             } } }
             val groups=remember(filtered) { filtered.groupBy { VaultAlphabet.key(it.name) } }
-            val ordered=VaultAlphabet.letters.filter { it in groups }
-            val offsets=remember(filtered) { var offset=0; ordered.associateWith { key -> val result=offset; offset+=1+groups.getValue(key).size; result } }
+            val ordered=VaultAlphabet.letters.filter { it in groups }.let { if(descending) it.reversed() else it }
+            val offsets=remember(filtered,descending) { var offset=0; ordered.associateWith { key -> val result=offset; offset+=1+groups.getValue(key).size; result } }
             val listState=androidx.compose.foundation.lazy.rememberLazyListState()
+            val sorted=remember(filtered,sort,descending) { sort.order(filtered,descending) }
+            LaunchedEffect(sort,descending) { listState.scrollToItem(0) }
             if(filtered.isEmpty()) {
                 EmptyState(if(entries.isEmpty()) "密码空间是空的" else "暂无${categories[page]}",if(page==0) "长按密码条目可添加收藏" else "点击右下角 + 添加动态密码或密码")
             } else {
                 Box(Modifier.fillMaxSize()) {
-                    LazyColumn(Modifier.fillMaxSize().padding(end=44.dp),state=listState,contentPadding=PaddingValues(bottom=96.dp)) {
-                        ordered.forEach { key ->
+                    LazyColumn(Modifier.fillMaxSize().padding(end=if(sort==VaultSort.ALPHABET) 44.dp else 0.dp),state=listState,contentPadding=PaddingValues(bottom=96.dp)) {
+                        if(sort==VaultSort.ALPHABET) ordered.forEach { key ->
                             item(key="letter-$key") { SectionLabel(key) }
-                            items(groups.getValue(key).sortedWith(compareBy(java.text.Collator.getInstance(java.util.Locale.CHINA)) { it.name }),key={it.id}) { e -> VaultEntryRow(e,now,sheets) }
-                        }
+                            items(sorted.filter { VaultAlphabet.key(it.name)==key },key={it.id}) { e -> VaultEntryRow(e,now,sheets) }
+                        } else items(sorted,key={it.id}) { e -> VaultEntryRow(e,now,sheets) }
                     }
-                    Box(Modifier.align(Alignment.CenterEnd)) {
-                        VaultIndexBar(groups.keys,{ AppState.vaultIndexDragging=it }) { letter -> offsets[letter]?.let { index -> scope.launch { listState.scrollToItem(index) } } }
+                    if(sort==VaultSort.ALPHABET) Box(Modifier.align(Alignment.CenterEnd)) {
+                        VaultIndexBar(groups.keys,{ AppState.vaultIndexDragging=it },descending=descending) { letter -> offsets[letter]?.let { index -> scope.launch { listState.scrollToItem(index) } } }
                     }
                 }
             }
@@ -236,6 +248,26 @@ fun VaultPage() {
     }
 
     VaultEntrySheets(sheets)
+    if(sorting) BottomSheet({ sorting=false }) { dismiss ->
+        Text("排序方式",Modifier.padding(start=20.dp,top=18.dp,bottom=8.dp),fontSize=17.sp,fontWeight=FontWeight.Medium,color=Kongye.Ink)
+        VaultSort.entries.forEachIndexed { index,option ->
+            Row(Modifier.fillMaxWidth().clickable { dismiss {
+                Settings.update { it.copy(vaultSortMode=option.name,vaultSortDescending=if(option==sort) !descending else option!=VaultSort.ALPHABET) }; sorting=false
+            } }.semantics { contentDescription="排序选项：${option.label}" }
+                .padding(start=14.dp,end=20.dp,top=14.dp,bottom=14.dp),verticalAlignment=Alignment.CenterVertically) {
+                Box(Modifier.width(30.dp),contentAlignment=Alignment.CenterStart) {
+                    if(option==sort) Icon(if(descending) KongyeIcons.ArrowDown else KongyeIcons.ArrowUp,"排序方向：${sort.direction(descending)}",Modifier.size(19.dp),tint=Kongye.Ink2)
+                }
+                Text(option.label,Modifier.weight(1f),fontSize=15.sp,color=Kongye.Ink)
+                Text(option.direction(if(option==sort) descending else option!=VaultSort.ALPHABET),fontSize=12.sp,color=Kongye.Text3)
+                Box(Modifier.padding(start=12.dp).size(20.dp),contentAlignment=Alignment.Center) {
+                    if(option==sort) Icon(KongyeIcons.Check,"当前排序",Modifier.size(19.dp),tint=Kongye.Primary)
+                }
+            }
+            if(index<VaultSort.entries.lastIndex) HLine(Modifier.padding(horizontal=20.dp),color=Kongye.Divider)
+        }
+        Spacer(Modifier.navigationBarsPadding().height(8.dp))
+    }
     if (AppState.vaultAdd) ActionSheet(
         onDismiss = { AppState.vaultAdd = false },
         actions = listOf(

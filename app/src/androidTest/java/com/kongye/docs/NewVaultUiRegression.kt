@@ -23,7 +23,7 @@ import com.kongye.docs.vault.VaultApi
 import java.io.File
 
 internal object NewVaultUiRegression {
-    fun run(inst: Instrumentation,saveOnly: Boolean=false,pass: (String)->Unit) {
+    fun run(inst: Instrumentation,saveOnly: Boolean=false,sortOnly: Boolean=false,pass: (String)->Unit) {
         fun <T> main(action: ()->T): T { var r: Result<T>?=null; inst.runOnMainSync { r=runCatching(action) }; return r!!.getOrThrow() }
         val ctx=inst.targetContext
         val activity=startTestActivity(inst,ctx)
@@ -136,6 +136,100 @@ internal object NewVaultUiRegression {
                 com.kongye.docs.ui.AppState.goHome(com.kongye.docs.ui.Tab.FILES)
                 com.kongye.docs.ui.AppState.filesSub=com.kongye.docs.ui.FilesSub.VAULT
                 activity.setContent { KongyeTheme { com.kongye.docs.ui.KongyeApp() } }
+            }
+            if(sortOnly) {
+                val sample=listOf(
+                    VaultEntry(id="one",type=VaultType.PASSWORD,name="123",createdAt=10,updatedAt=30),
+                    VaultEntry(id="two",type=VaultType.PASSWORD,name="Zulu",createdAt=30,updatedAt=10),
+                    VaultEntry(id="three",type=VaultType.PASSWORD,name="Apple",createdAt=20,updatedAt=20))
+                check(com.kongye.docs.ui.vault.VaultSort.ALPHABET.order(sample).map { it.name }==listOf("Apple","Zulu","123"))
+                check(com.kongye.docs.ui.vault.VaultSort.CREATED.order(sample).map { it.name }==listOf("Zulu","Apple","123"))
+                check(com.kongye.docs.ui.vault.VaultSort.UPDATED.order(sample).map { it.name }==listOf("123","Apple","Zulu"))
+                check(com.kongye.docs.ui.vault.VaultSort.ALPHABET.order(sample,true).map { it.name }==listOf("123","Zulu","Apple"))
+                check(com.kongye.docs.ui.vault.VaultSort.CREATED.order(sample,false).map { it.name }==listOf("123","Apple","Zulu"))
+                check(com.kongye.docs.ui.vault.VaultSort.UPDATED.order(sample,false).map { it.name }==listOf("Zulu","Apple","123"))
+                waitFor("default alphabet") { find("密码排序：字母排序")!=null && find("A 密码 0")!=null }
+                val preview=File(ctx.getExternalFilesDir(null),"vault-sort").apply { mkdirs() }
+                fun shot(name: String) {
+                    Thread.sleep(250)
+                    auto.takeScreenshot()?.let { bmp -> File(preview,name).outputStream().use { bmp.compress(android.graphics.Bitmap.CompressFormat.PNG,100,it) }; bmp.recycle() }
+                }
+                shot("alphabet.png")
+                click("密码排序：字母排序")
+                waitFor("three sorting choices") { find("排序方式")!=null && find("按增加时间")!=null && find("按修改时间")!=null }
+                shot("options.png")
+                click("按增加时间")
+                waitFor("newest created first") { find("密码排序：按增加时间")!=null && find("123")!=null && find("密码字母滑动索引")==null }
+                val latest=main { VaultStore.entries.value.single { it.name=="A 密码 0" } }
+                main { VaultStore.save(latest.copy(password="modified-synthetic")) }
+                click("密码排序：按增加时间"); click("按修改时间")
+                waitFor("recently edited first") { find("密码排序：按修改时间")!=null && find("A 密码 0")!=null && find("密码字母滑动索引")==null }
+                main { Settings.init(fixture) }
+                check(Settings.value.vaultSortMode=="UPDATED")
+                main { com.kongye.docs.ui.AppState.tab=com.kongye.docs.ui.Tab.ME }
+                Thread.sleep(250)
+                main { com.kongye.docs.ui.AppState.tab=com.kongye.docs.ui.Tab.FILES }
+                waitFor("sort retained after leaving and reloading") { find("密码排序：按修改时间")!=null && find("A 密码 0")!=null }
+                click("动态密码")
+                waitFor("sort retained in OTP category") { find("动态密码测试")!=null && find("密码排序：按修改时间")!=null }
+                click("普通密码")
+                waitFor("ordinary list") { find("A 密码 0")!=null }
+                shot("updated.png")
+                click("密码排序：按修改时间"); click("字母排序")
+                waitFor("alphabet index returns") { find("密码排序：字母排序")!=null && find("密码字母滑动索引")!=null }
+                click("密码排序：字母排序"); click("排序选项：字母排序")
+                waitFor("alphabet reversed") { Settings.value.vaultSortDescending==true && find("123")!=null }
+                click("密码排序：字母排序")
+                waitFor("down arrow in selected menu row") { find("排序方向：# · Z–A")!=null }
+                shot("descending-options.png")
+                auto.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+                waitFor("menu closed") { find("排序方式")==null }
+                val indexBounds=Rect().also { locate("密码字母滑动索引").getBoundsInScreen(it) }
+                fun indexLabelTop(label: String): Int {
+                    fun walk(node: AccessibilityNodeInfo): AccessibilityNodeInfo? {
+                        if(node.text?.toString()==label) return node
+                        for(i in 0 until node.childCount) node.getChild(i)?.let { walk(it)?.let { return it } }
+                        return null
+                    }
+                    val node=walk(locate("密码字母滑动索引")) ?: error("Missing index letter $label")
+                    return Rect().also(node::getBoundsInScreen).top
+                }
+                val touch=SystemClock.uptimeMillis()
+                fun indexEvent(action: Int,y: Float) {
+                    val event=MotionEvent.obtain(touch,SystemClock.uptimeMillis(),action,indexBounds.exactCenterX(),y,0).apply { source=InputDevice.SOURCE_TOUCHSCREEN }
+                    check(auto.injectInputEvent(event,true)); event.recycle()
+                }
+                indexEvent(MotionEvent.ACTION_DOWN,indexBounds.exactCenterY())
+                waitFor("reverse index active hides overlapping add button") { find("新建")==null }
+                check(indexLabelTop("#")<indexLabelTop("Z") && indexLabelTop("Z")<indexLabelTop("A"))
+                indexEvent(MotionEvent.ACTION_MOVE,indexBounds.top+2f)
+                waitFor("reverse index top jumps to hash") { find("123")!=null }
+                indexEvent(MotionEvent.ACTION_MOVE,indexBounds.top+indexBounds.height()*1.5f/27f)
+                waitFor("reverse index second letter jumps to Z") { find("Z 密码 0")!=null }
+                shot("reverse-wave-Z.png")
+                indexEvent(MotionEvent.ACTION_MOVE,indexBounds.bottom-2f)
+                indexEvent(MotionEvent.ACTION_UP,indexBounds.bottom-2f)
+                waitFor("A index jumps correctly in reverse groups") { find("A 密码 0")!=null }
+                click("密码排序：字母排序"); click("排序选项：字母排序")
+                waitFor("alphabet ascending restored") { Settings.value.vaultSortDescending==false && find("A 密码 0")!=null }
+                val ascendingTouch=SystemClock.uptimeMillis()
+                val ascendingDown=MotionEvent.obtain(ascendingTouch,SystemClock.uptimeMillis(),MotionEvent.ACTION_DOWN,indexBounds.exactCenterX(),indexBounds.exactCenterY(),0).apply { source=InputDevice.SOURCE_TOUCHSCREEN }
+                check(auto.injectInputEvent(ascendingDown,true)); ascendingDown.recycle()
+                waitFor("ascending index active") { find("新建")==null }
+                check(indexLabelTop("A")<indexLabelTop("Z") && indexLabelTop("Z")<indexLabelTop("#"))
+                val ascendingUp=MotionEvent.obtain(ascendingTouch,SystemClock.uptimeMillis(),MotionEvent.ACTION_UP,indexBounds.exactCenterX(),indexBounds.exactCenterY(),0).apply { source=InputDevice.SOURCE_TOUCHSCREEN }
+                check(auto.injectInputEvent(ascendingUp,true)); ascendingUp.recycle()
+                click("密码排序：字母排序"); click("按修改时间")
+                waitFor("new mode defaults newest first") { Settings.value.vaultSortDescending==true && find("A 密码 0")!=null }
+                click("密码排序：按修改时间"); click("排序选项：按修改时间")
+                waitFor("time toggles oldest first") { Settings.value.vaultSortDescending==false && find("A 密码 1")!=null && find("A 密码 0")==null }
+                main { Settings.init(fixture) }
+                check(Settings.value.vaultSortMode=="UPDATED" && Settings.value.vaultSortDescending==false)
+                click("密码排序：按修改时间")
+                waitFor("up arrow in selected time row") { find("排序方向：从旧到新")!=null }
+                auto.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK)
+                pass("vault-sort-direction-arrows-both-orders-persistence-and-reverse-alphabet-index")
+                return
             }
             if(!saveOnly) {
             waitFor("ordinary category count excludes favorites") { find("共 80 个密码")!=null }

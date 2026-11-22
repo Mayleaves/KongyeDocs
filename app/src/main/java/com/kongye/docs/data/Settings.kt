@@ -57,6 +57,9 @@ data class AppSettings(
     /** 文件页的排序方式（SortMode 名称）和方向，下次打开仍沿用 */
     val filesSortMode: String = "UPDATED",
     val filesSortDesc: Boolean = true,
+    /** 密码空间的排序方式，时间排序从新到旧。 */
+    val vaultSortMode: String = "ALPHABET",
+    val vaultSortDescending: Boolean? = null,
     /** 第一次使用的时间（“相识于”），0 表示还没记下 */
     val firstUse: Long = 0L,
     /** 密码空间 → 密码填充：允许空叶键盘 / 悬浮球通过对外接口读取，默认关闭 */

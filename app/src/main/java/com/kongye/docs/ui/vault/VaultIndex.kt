@@ -38,14 +38,14 @@ internal object VaultAlphabet {
     }
 }
 
-@Composable internal fun VaultIndexBar(available: Set<String>,onDragging: (Boolean) -> Unit,onJump: (String) -> Unit) {
+@Composable internal fun VaultIndexBar(available: Set<String>,onDragging: (Boolean) -> Unit,descending: Boolean=false,onJump: (String) -> Unit) {
     var dragging by remember { mutableStateOf(false) }
     var position by remember { mutableFloatStateOf(0f) }
     var selected by remember { mutableIntStateOf(0) }
     val latestJump by rememberUpdatedState(onJump)
     val latestAvailable by rememberUpdatedState(available)
     val latestDragging by rememberUpdatedState(onDragging)
-    val letters=VaultAlphabet.letters
+    val letters=remember(descending) { if(descending) VaultAlphabet.letters.reversed() else VaultAlphabet.letters }
     val expansion by animateFloatAsState(if(dragging) 1f else 0f,spring(dampingRatio=1f,stiffness=550f),label="index-wave")
     val following by animateFloatAsState(position,spring(dampingRatio=1f,stiffness=1400f),label="index-finger")
     val density=LocalDensity.current
@@ -56,7 +56,7 @@ internal object VaultAlphabet {
         val wavePx=with(density) { 36.dp.toPx() }
         Column(Modifier.align(Alignment.CenterEnd).padding(end=12.dp).width(28.dp).height(barHeight)
             .semantics { contentDescription="密码字母滑动索引" }
-            .pointerInput(Unit) {
+            .pointerInput(descending) {
                 awaitEachGesture {
                     val down=awaitFirstDown(requireUnconsumed=false)
                     down.consume()
