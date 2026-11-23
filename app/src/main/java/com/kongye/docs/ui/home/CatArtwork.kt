@@ -26,7 +26,18 @@ internal class CatArtwork internal constructor(
 )
 internal data class CatArtPart(val path: Path, val fill: String, val stroke: String, val width: Float,
     val clip: Path?, val dash: FloatArray?, val motion: CatArtMotion = CatArtMotion.STILL,
-    val role: String = "")
+    val role: String = "",val effect: CatArtEffect = CatArtEffect.NONE)
+
+internal data class CatEffectFrame(val scale: Float,val alpha: Float)
+internal enum class CatArtEffect(val x: Float,val y: Float,private val delay: Float=0f) {
+    NONE(0f,0f), BUBBLE(83f,91f), Z1(141.5f,58f,.25f), Z2(154.5f,43f,.65f), Z3(170.5f,26f,1.05f);
+    fun frame(seconds: Float): CatEffectFrame {
+        if(this==NONE) return CatEffectFrame(1f,1f)
+        val p=(((seconds-delay)%3.4f+3.4f)%3.4f)/3.4f
+        val alpha=when { p<.1f -> p/.1f; p>.65f -> (1f-p)/.35f; else -> 1f }
+        return CatEffectFrame(if(this==BUBBLE) .6f+1.1f*p else .75f+.55f*p,alpha.coerceIn(0f,1f))
+    }
+}
 
 /** Only local rigid rotations: the body, size and ground position never animate. */
 internal enum class CatArtMotion(val degrees: Float, val x: Float, val y: Float) {
@@ -34,7 +45,7 @@ internal enum class CatArtMotion(val degrees: Float, val x: Float, val y: Float)
     SLEEP_TAIL(3f,164f,108f),
     SLEEP_LEFT_PAW(3f,92f,120f),
     SLEEP_RIGHT_PAW(-3f,98f,120f),
-    SLEEP_BUBBLE(3f,97f,82f),
+    SLEEP_BUBBLE(0f,83f,91f),
     WAND_PAW(-12f,73f,98f),
     WAND_ROD(3.5f,10f,16f),
     WAND_LURE(10f,76f,24f),
@@ -102,7 +113,7 @@ internal fun loadCatArtwork(resources: Resources, id: Int): CatArtwork {
             parts+=CatArtPart(path,style["fill"] ?: "#000000",style["stroke"] ?: "none",
                 style["stroke-width"]?.toFloat() ?: 1f,clip,dash,
                 e.getAttribute("data-motion").takeIf { it.isNotEmpty() }?.let(CatArtMotion::valueOf) ?: CatArtMotion.STILL,
-                e.getAttribute("data-role"))
+                e.getAttribute("data-role"),e.getAttribute("data-effect").takeIf { it.isNotEmpty() }?.let(CatArtEffect::valueOf) ?: CatArtEffect.NONE)
         }
         children(e).forEach { visit(it,style,matrix,clip) }
     }
@@ -110,7 +121,7 @@ internal fun loadCatArtwork(resources: Resources, id: Int): CatArtwork {
     require(parts.isNotEmpty()) { "Cat SVG contains no artwork" }
     // Normalize the cat itself, rather than fitting a canvas that also contains toys.
     // The regular pose in LineCat spans y=39..103 (64 units), with its left at x=30.
-    if(id==com.kongye.docs.R.raw.cat_wand || id==com.kongye.docs.R.raw.cat_mouse) {
+    if(id in listOf(com.kongye.docs.R.raw.cat_wand,com.kongye.docs.R.raw.cat_mouse,com.kongye.docs.R.raw.cat_snore)) {
         val body=parts.single { it.role=="body" }
         val bounds=RectF().also { body.path.computeBounds(it,true) }
         val scale=64f/bounds.height()
@@ -119,7 +130,7 @@ internal fun loadCatArtwork(resources: Resources, id: Int): CatArtwork {
     return CatArtwork(parts)
 }
 
-internal fun DrawScope.drawCatArtwork(art: CatArtwork, ground: Float, wave: Float, ink: Color, background: Color) {
+internal fun DrawScope.drawCatArtwork(art: CatArtwork, ground: Float, wave: Float, ink: Color, background: Color,seconds: Float=0f) {
     // 240×160 source: paws at y=120 (sleep/wand) or y=125 (mouse).
     // Keep the source proportions and the same paw baseline as the regular pose.
     // Toys may extend to the left of the cat's canvas; they don't shrink the cat.
@@ -133,13 +144,17 @@ internal fun DrawScope.drawCatArtwork(art: CatArtwork, ground: Float, wave: Floa
                     art.parts.forEach { part ->
                         val save=native.save()
                         native.concat(motion.getValue(part.motion))
+                        val effect=part.effect.frame(seconds)
+                        native.scale(effect.scale,effect.scale,part.effect.x,part.effect.y)
                         part.clip?.let { native.clipPath(it) }
                         if(part.fill!="none") {
                             paint.style=Paint.Style.FILL; paint.pathEffect=null; paint.color=color(part.fill)
+                            paint.alpha=(paint.alpha*effect.alpha).toInt()
                             native.drawPath(part.path,paint)
                         }
                         if(part.stroke!="none") {
                             paint.style=Paint.Style.STROKE; paint.color=color(part.stroke); paint.strokeWidth=part.width
+                            paint.alpha=(paint.alpha*effect.alpha).toInt()
                             paint.pathEffect=part.dash?.let { DashPathEffect(it,0f) }
                             native.drawPath(part.path,paint)
                         }

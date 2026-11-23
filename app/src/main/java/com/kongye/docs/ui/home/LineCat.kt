@@ -267,7 +267,7 @@ fun LineCat(part: DayPart, messages: () -> List<String>, modifier: Modifier = Mo
                 when {
                     a==CatAct.WAND -> drawCatArtwork(wand,120f,sin(p*4f*PI.toFloat()),ink,bg)
                     a==CatAct.MOUSE -> drawCatArtwork(mouse,125f,sin(p*4f*PI.toFloat()),ink,bg)
-                    part==DayPart.NIGHT && a==null -> drawCatArtwork(snore,120f,sin(t*1.8f),ink,bg)
+                    part==DayPart.NIGHT && a==null -> drawCatArtwork(snore,120f,sin(t*1.8f),ink,bg,seconds=t)
                     else -> drawCat(part, a, p, t, ink, bg, pink, bowl, yarn, steam, yawn, props)
                 }
             }

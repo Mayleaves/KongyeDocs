@@ -522,7 +522,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                         editor.title.copy(selection = TextRange(editor.title.selection.end)) else editor.title,
                     onValueChange = { if(titleGeneration==editor.inputGeneration && titleEpoch==editor.inputEpoch) editor.onTitleChange(it) },
                     readOnly = editor.findMode,
-                    textStyle = TextStyle(fontSize = TITLE_SIZE, lineHeight = TITLE_LINE, fontWeight = FontWeight.Bold, color = Kongye.Ink),
+                    textStyle = TextStyle(fontSize = TITLE_SIZE, lineHeight = TITLE_LINE, fontWeight = FontWeight.Bold, fontFamily=com.kongye.docs.util.DocumentFonts.boldFamily,color = Kongye.Ink),
                     cursorBrush = SolidColor(Kongye.Primary),
                     onTextLayout = { titleLayout = it; editor.layouts[TITLE_KEY]=it },
                     modifier = Modifier.fillMaxWidth().documentTextMenu(editor).focusRequester(titleFocus).onGloballyPositioned { editor.selection.register(TITLE_KEY,it) }.drawBehind {
@@ -539,7 +539,7 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                     },
                     decorationBox = { inner ->
                         Box {
-                            if (editor.title.text.isEmpty()) Text("无标题", fontSize = TITLE_SIZE, lineHeight = TITLE_LINE, fontWeight = FontWeight.Bold, color = Kongye.Text4)
+                            if (editor.title.text.isEmpty()) Text("无标题", fontSize = TITLE_SIZE, lineHeight = TITLE_LINE, fontWeight = FontWeight.Bold,fontFamily=com.kongye.docs.util.DocumentFonts.boldFamily,color = Kongye.Text4)
                             inner()
                         }
                     },

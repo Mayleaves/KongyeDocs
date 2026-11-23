@@ -106,9 +106,9 @@ internal val LocalKeepEditorPanel=staticCompositionLocalOf { false }
 internal val LocalEditorTextTap=staticCompositionLocalOf<() -> Unit> { {} }
 
 fun blockTextStyle(type: BlockType): TextStyle = when (type) {
-    BlockType.H1 -> TextStyle(fontSize = 24.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold)
-    BlockType.H2 -> TextStyle(fontSize = 20.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
-    BlockType.H3 -> TextStyle(fontSize = 17.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold)
+    BlockType.H1 -> TextStyle(fontSize = 24.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold,fontFamily=com.kongye.docs.util.DocumentFonts.boldFamily)
+    BlockType.H2 -> TextStyle(fontSize = 20.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold,fontFamily=com.kongye.docs.util.DocumentFonts.boldFamily)
+    BlockType.H3 -> TextStyle(fontSize = 17.sp, lineHeight = 26.sp, fontWeight = FontWeight.SemiBold,fontFamily=com.kongye.docs.util.DocumentFonts.semiBoldFamily)
     BlockType.QUOTE -> TextStyle(fontSize = 16.sp, lineHeight = 26.sp, color = Kongye.Text2)
     BlockType.CODE -> TextStyle(fontSize = 14.sp, lineHeight = 22.sp, fontFamily = FontFamily.Monospace)
     else -> TextStyle(fontSize = 16.sp, lineHeight = 26.sp)
@@ -193,10 +193,10 @@ private fun TextBlock(b: BlockState, index: Int, editor: EditorState) {
     val commentSpans = spans.filter { it.style == InlineStyle.COMMENT && editor.thread(it.url) != null }
     val focusedComment = editor.commentView?.threadId
     val draft = editor.commentDraft?.takeIf { it.blockId == b.id }
-    val transformation = remember(spans, done, marks.map { Triple(it.start, it.end, it.current) }, editor.selection.range, selectionBackground) {
+    val transformation = remember(type,spans, done, marks.map { Triple(it.start, it.end, it.current) }, editor.selection.range, selectionBackground) {
         VisualTransformation { t ->
             val text=androidx.compose.ui.text.buildAnnotatedString {
-                append(buildStyledText(t.text,spans,done,marks))
+                append(buildStyledText(t.text,spans,done,marks,boldFamily=if(type==BlockType.CODE) null else com.kongye.docs.util.DocumentFonts.boldFamily))
                 editor.selection.localRange(b.id)?.let { if(!it.collapsed) addStyle(androidx.compose.ui.text.SpanStyle(background=selectionBackground),it.min,it.max) }
             }
             TransformedText(text,OffsetMapping.Identity)

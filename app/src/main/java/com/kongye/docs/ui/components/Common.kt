@@ -298,7 +298,7 @@ fun FileCard(
             .padding(start = 12.dp, top = 2.dp, bottom = 10.dp),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(meta, Modifier.weight(1f), fontSize = 12.sp, color = Kongye.Sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Text(meta, Modifier.weight(1f), fontSize = 11.sp, color = Kongye.Sub, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (item.starred) BookmarkMark()
             if (selected != null) Box(Modifier.size(34.dp), contentAlignment = Alignment.Center) { SelectCircle(selected, 19.dp) }
             else IconBtn(KongyeIcons.MoreV, onMore, tint = Kongye.Icon2, size = 34.dp, iconSize = 18.dp, description = "更多")
@@ -307,7 +307,7 @@ fun FileCard(
         Row(Modifier.padding(end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
             Text(
                 item.displayTitle, Modifier.weight(1f, fill = false),
-                fontSize = 16.sp, color = Kongye.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                fontSize = 14.sp, color = Kongye.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
             if (pinned) PinnedMark(Modifier.padding(start = 5.dp))
         }
@@ -318,7 +318,7 @@ fun FileCard(
                 // 文档一律显示正文预览；没有文字时也保留预览区，淡淡地写“无内容”
                 Text(
                     item.preview.ifBlank { "无内容" }, Modifier.fillMaxSize().padding(top = 8.dp),
-                    fontSize = 12.sp, lineHeight = 17.sp, color = Kongye.Text4,
+                    fontSize = 11.sp, lineHeight = 16.sp, color = Kongye.Text4,
                     maxLines = 6, overflow = TextOverflow.Ellipsis,
                 )
             }

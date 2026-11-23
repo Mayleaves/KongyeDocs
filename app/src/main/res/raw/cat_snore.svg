@@ -5,7 +5,7 @@
     <path data-motion="SLEEP_TAIL" d="M 164 102 C 180 105, 190 116, 192 124 L 198 124 L 194 132 L 200 138 L 192 146 C 190 151, 182 153, 173 154 C 166 146, 164 130, 164 112 Z" />
 
     <!-- 猫咪放松趴睡的身体与头部轮廓 -->
-    <path d="M 65 72 
+    <path data-role="body" d="M 65 72
              L 61 38 L 83 56 
              Q 97 50 111 56 
              L 133 38 L 129 68 
@@ -36,13 +36,13 @@
     <path d="M 140 120 C 140 106, 150 100, 160 100" fill="none" />
 
     <!-- 熟睡鼻涕泡（带高光弧线） -->
-    <circle data-motion="SLEEP_BUBBLE" cx="83" cy="91" r="7.5" stroke-width="2.4" />
-    <path data-motion="SLEEP_BUBBLE" d="M 79 88 A 4 4 0 0 1 83 86" fill="none" stroke-width="1.8" />
+    <circle data-motion="SLEEP_BUBBLE" data-effect="BUBBLE" cx="83" cy="91" r="7.5" stroke-width="2.4" />
+    <path data-motion="SLEEP_BUBBLE" data-effect="BUBBLE" d="M 79 88 A 4 4 0 0 1 83 86" fill="none" stroke-width="1.8" />
 
     <!-- 打呼噜 Zzz 符号（由小到大飘向右上角） -->
-    <path d="M 138 54 L 145 54 L 138 62 L 145 62" fill="none" stroke-width="2.2" />
-    <path d="M 150 38 L 159 38 L 150 48 L 159 48" fill="none" stroke-width="2.6" />
-    <path d="M 165 20 L 176 20 L 165 32 L 176 32" fill="none" stroke-width="3" />
+    <path data-effect="Z1" d="M 138 54 L 145 54 L 138 62 L 145 62" fill="none" stroke-width="2.2" />
+    <path data-effect="Z2" d="M 150 38 L 159 38 L 150 48 L 159 48" fill="none" stroke-width="2.6" />
+    <path data-effect="Z3" d="M 165 20 L 176 20 L 165 32 L 176 32" fill="none" stroke-width="3" />
 
     <!-- 呼噜呼噜的背部震动波纹 -->
     <path d="M 152 72 Q 160 74 165 81" fill="none" stroke-width="2" />

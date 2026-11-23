@@ -87,7 +87,8 @@ object DocRenderer {
         this.color = color
         typeface = when {
             mono -> Typeface.MONOSPACE
-            weight >= 700 -> Typeface.DEFAULT_BOLD
+            weight >= 700 -> com.kongye.docs.util.DocumentFonts.nativeBold
+            weight >= 600 -> com.kongye.docs.util.DocumentFonts.nativeSemiBold
             weight > 400 && Build.VERSION.SDK_INT >= Build.VERSION_CODES.P -> Typeface.create(Typeface.DEFAULT, weight, false)
             weight > 400 -> Typeface.DEFAULT_BOLD
             else -> Typeface.DEFAULT
@@ -118,7 +119,11 @@ object DocRenderer {
             val en = r.end.coerceIn(0, b.text.length)
             if (en <= st) return@forEach
             val spans = when (r.style) {
-                InlineStyle.BOLD -> listOf(StyleSpan(Typeface.BOLD))
+                InlineStyle.BOLD -> if(b.type==BlockType.CODE) listOf(StyleSpan(Typeface.BOLD)) else listOf(object: android.text.style.MetricAffectingSpan() {
+                    private fun apply(p: TextPaint) { p.typeface=if(p.typeface?.isItalic==true) Typeface.create(com.kongye.docs.util.DocumentFonts.nativeBold,Typeface.BOLD_ITALIC) else com.kongye.docs.util.DocumentFonts.nativeBold }
+                    override fun updateDrawState(tp: TextPaint)=apply(tp)
+                    override fun updateMeasureState(tp: TextPaint)=apply(tp)
+                })
                 InlineStyle.ITALIC -> listOf(StyleSpan(Typeface.ITALIC))
                 InlineStyle.UNDERLINE -> listOf(UnderlineSpan())
                 InlineStyle.STRIKE -> listOf(StrikethroughSpan())

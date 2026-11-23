@@ -64,15 +64,15 @@ internal object CatMotionRegression {
         }
         pass("three-cat-poses-show-local-motion-while-body-pixels-stay-fixed")
         // Compare actual SVG geometry against the regular pose, excluding the toys.
-        for(id in listOf(R.raw.cat_wand,R.raw.cat_mouse)) {
+        for(id in listOf(R.raw.cat_snore,R.raw.cat_wand,R.raw.cat_mouse)) {
             val art=loadCatArtwork(context.resources,id)
             val body=art.parts.single { it.role=="body" }
             val bounds=android.graphics.RectF().also { body.path.computeBounds(it,true) }
             check(abs(bounds.height()*art.bodyScale-64f)<.001f)
             check(abs(bounds.left*art.bodyScale+art.bodyLeft-30f)<.001f)
-            val ground=if(id==R.raw.cat_wand) 120f else 125f
+            val ground=if(id==R.raw.cat_mouse) 125f else 120f
             check(abs(103f-ground*art.bodyScale+bounds.top*art.bodyScale-39f)<.001f)
         }
-        pass("wand-and-mouse-cat-body-match-regular-pose-height-position-and-paw-baseline")
+        pass("snore-wand-and-mouse-cat-body-match-regular-pose-height-position-and-paw-baseline")
     }
 }

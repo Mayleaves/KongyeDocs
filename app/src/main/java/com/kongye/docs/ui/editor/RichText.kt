@@ -140,6 +140,7 @@ fun buildStyledText(
     spans: List<StyleRange>,
     done: Boolean,
     marks: List<FindMark> = emptyList(),
+    boldFamily: androidx.compose.ui.text.font.FontFamily? = com.kongye.docs.util.DocumentFonts.boldFamily,
 ): AnnotatedString = buildAnnotatedString {
     append(text)
     if (done) addStyle(SpanStyle(color = Kongye.Text3, textDecoration = TextDecoration.LineThrough), 0, text.length)
@@ -148,7 +149,7 @@ fun buildStyledText(
         val e = r.end.coerceIn(0, text.length)
         if (e <= s) return@forEach
         val style = when (r.style) {
-            InlineStyle.BOLD -> SpanStyle(fontWeight = FontWeight.Bold)
+            InlineStyle.BOLD -> SpanStyle(fontWeight = FontWeight.Bold,fontFamily=boldFamily)
             InlineStyle.ITALIC -> SpanStyle(fontStyle = FontStyle.Italic)
             InlineStyle.UNDERLINE -> SpanStyle(textDecoration = TextDecoration.Underline)
             InlineStyle.STRIKE -> SpanStyle(textDecoration = TextDecoration.LineThrough)
