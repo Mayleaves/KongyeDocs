@@ -1,11 +1,40 @@
 package com.kongye.docs.data
 
 enum class DiffKind { SAME, ADDED, REMOVED }
-data class DiffPart(val text: String, val kind: DiffKind)
+data class DiffPart(val text: String, val kind: DiffKind, val image: String = "")
 
 /** Bounded Myers diff on Unicode code points. A large rewrite falls back to one replacement. */
 object VersionDiff {
     fun preview(currentTitle: String,current: DocContent,selected: DocVersion): List<DiffPart> = between(currentTitle+"\n\n"+current.plainText(),selected.title+"\n\n"+selected.content.plainText())
+
+    /** Treat each image as an atomic token, so replacing a picture is a real change. */
+    fun previewWithImages(currentTitle: String, current: DocContent, selected: DocVersion): List<DiffPart> {
+        val used=(currentTitle+current.plainText()+selected.title+selected.content.plainText()).codePoints().toArray().toHashSet()
+        val images=(current.blocks+selected.content.blocks).filter { it.type==BlockType.IMAGE && it.image.isNotEmpty() }.map { it.image }.distinct()
+        var next=0xF0000
+        val tokens=images.associateWith {
+            while(next in used || (next and 0xFFFF)>=0xFFFE) next++
+            require(next<=0x10FFFD) { "图片数量过多，无法比较" }
+            next++
+        }
+        val names=tokens.entries.associate { it.value to it.key }
+        fun encoded(title: String, content: DocContent)=title+"\n\n"+content.blocks.joinToString("\n") { block ->
+            tokens[block.image]?.takeIf { block.type==BlockType.IMAGE }?.let { String(Character.toChars(it)) }
+                ?: DocContent(listOf(block)).plainText()
+        }
+        return buildList {
+            between(encoded(currentTitle,current),encoded(selected.title,selected.content)).forEach { part ->
+                val text=StringBuilder()
+                fun flush() { if(text.isNotEmpty()) { add(DiffPart(text.toString(),part.kind)); text.clear() } }
+                part.text.codePoints().forEach { point ->
+                    val image=names[point]
+                    if(image==null) text.appendCodePoint(point)
+                    else { flush(); add(DiffPart("",part.kind,image)) }
+                }
+                flush()
+            }
+        }
+    }
 
     /** Align complete lines first. Isolated matching characters inside a rewrite are changes. */
     fun between(before: String, after: String): List<DiffPart> {

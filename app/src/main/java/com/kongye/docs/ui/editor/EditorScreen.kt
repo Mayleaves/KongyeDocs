@@ -21,6 +21,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.Row
@@ -38,6 +39,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.union
 import androidx.compose.foundation.layout.windowInsetsBottomHeight
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -460,21 +462,22 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
             FindTopBar(editor) { editor.closeFind() }
         } else {
             Column(Modifier.fillMaxWidth().background(Kongye.Surface).statusBarsPadding()) {
-                Row(
+                BoxWithConstraints(
                     Modifier.fillMaxWidth().heightIn(min = layout.barHeight).padding(horizontal = 6.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    if (editing) IconBtn(KongyeIcons.Check, ::finishEditing, tint = doneBlue, iconSize = 26.dp, description = "完成")
-                    else IconBtn(KongyeIcons.Back, { AppState.pop() }, tint = Kongye.Ink2, description = "返回")
+                    val actionsWidth = 34.dp * (2 + (if (item?.pinned == true) 1 else 0) + (if (item?.starred == true) 1 else 0))
+                    val labelWidth = (maxWidth - maxOf(40.dp, actionsWidth) * 2).coerceAtLeast(0.dp)
+                    if (editing) IconBtn(KongyeIcons.Check, ::finishEditing, Modifier.align(Alignment.CenterStart), tint = doneBlue, iconSize = 26.dp, description = "完成")
+                    else IconBtn(KongyeIcons.Back, { AppState.pop() }, Modifier.align(Alignment.CenterStart), tint = Kongye.Ink2, description = "返回")
                     if (settings.autoLocalVersion) {
                         Text(
-                            if (editor.isSaved) "文档将自动保存" else "正在保存…",
-                            Modifier.weight(1f).padding(horizontal = 6.dp),
+                            if (!editor.isSaved) "正在保存…" else if (labelWidth < 88.dp) "自动保存" else "文档将自动保存",
+                            Modifier.align(Alignment.Center).width(labelWidth).padding(horizontal = 2.dp),
                             fontSize = 12.sp, color = Kongye.Sub, textAlign = TextAlign.Center,
                             maxLines = 1, overflow = TextOverflow.Ellipsis,
                         )
-                    } else Spacer(Modifier.weight(1f))
-                    Row {
+                    }
+                    Row(Modifier.align(Alignment.CenterEnd), verticalAlignment = Alignment.CenterVertically) {
                         // 已置顶的文档在顶栏显示图钉，点一下取消置顶
                         if (item?.pinned == true) {
                             IconBtn(KongyeIcons.PinFilled, {
@@ -489,8 +492,8 @@ private fun EditorScreenContent(docId: String, isNew: Boolean) {
                                 Toast.done("已取消收藏")
                             }, tint = Kongye.Bookmark, size = 34.dp, iconSize = 20.dp, description = "已收藏")
                         }
-                        IconBtn(KongyeIcons.Share, { sheet = EdSheet.Share }, tint = Kongye.Ink2, description = "分享")
-                        IconBtn(KongyeIcons.More, { finishEditing(); sheet = EdSheet.More }, tint = Kongye.Ink2, description = "更多")
+                        IconBtn(KongyeIcons.Share, { sheet = EdSheet.Share }, tint = Kongye.Ink2, size = 34.dp, description = "分享")
+                        IconBtn(KongyeIcons.More, { finishEditing(); sheet = EdSheet.More }, tint = Kongye.Ink2, size = 34.dp, description = "更多")
                     }
                 }
                 HLine(color = Kongye.Divider)
