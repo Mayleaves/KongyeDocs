@@ -283,7 +283,7 @@ object VaultApi {
         val account = input.resolvedAccount
         val existing = findExisting(input)
         val cert = AppCerts.of(context, app)
-        val extra = input.fields.filter { it.value.isNotBlank() && (it.type=="other" || it.value.trim() != account) && !it.storedLabel.startsWith(OLD_PASSWORD) }
+        val extra = input.fields.filter { it.value.isNotBlank() && (it.type!="username" || it.value.trim() != account) && !it.storedLabel.startsWith(OLD_PASSWORD) }
         if (existing != null) {
             var next = replacePassword(bind(existing, app, domain, cert), input.password)
             next = mergeFields(next, extra)

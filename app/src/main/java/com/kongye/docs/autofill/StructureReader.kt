@@ -42,10 +42,11 @@ object StructureReader {
             val className = node.className.orEmpty()
             val text = sequenceOf(node.text?.toString(), node.contentDescription?.toString(), attrs["aria-label"], attrs["title"])
                 .mapNotNull { it?.trim()?.takeIf(String::isNotEmpty) }.firstOrNull().orEmpty()
-            val isInput = node.autofillId != null && node.autofillType == View.AUTOFILL_TYPE_TEXT && (
+            val textInput = node.autofillType == View.AUTOFILL_TYPE_TEXT && (
                 className.contains("EditText") || node.inputType != 0 ||
                     tag == "input" && type !in setOf("hidden", "submit", "button", "checkbox", "radio", "image", "reset", "file", "range", "color", "search") ||
                     tag == "textarea")
+            val isInput = node.autofillId != null && type!="hidden" && (textInput || node.autofillType in setOf(View.AUTOFILL_TYPE_LIST,View.AUTOFILL_TYPE_TOGGLE,View.AUTOFILL_TYPE_DATE))
             val isButton = className.contains("Button") || tag == "button" || tag == "input" && type in setOf("submit", "button") ||
                 node.isClickable && text.isNotEmpty() && text.length <= 12 && !isInput
             when {
@@ -80,6 +81,14 @@ object StructureReader {
             val after = items.drop(i + 1).takeWhile { it !is Item.Field }.filterIsInstance<Item.Text>().filter { !it.button }.take(3).joinToString("\n") { it.text }
             val html = node.htmlInfo
             val attrs = html?.attributes?.associate { it.first.lowercase() to it.second.orEmpty() }.orEmpty()
+            val value=node.autofillValue
+            val readableValue=when {
+                value?.isText==true -> value.textValue.toString()
+                value?.isList==true -> node.autofillOptions?.getOrNull(value.listValue)?.toString().orEmpty()
+                value?.isToggle==true -> if(value.toggleValue) "是" else "否"
+                value?.isDate==true -> java.text.SimpleDateFormat("yyyy-MM-dd",java.util.Locale.CHINA).format(java.util.Date(value.dateValue))
+                else -> node.text?.toString()?.takeUnless { it==node.hint?.toString() } ?: attrs["value"].orEmpty()
+            }
             fields += PageField(
                 id = node.autofillId!!,
                 hints = node.autofillHints?.toList().orEmpty(),
@@ -90,7 +99,8 @@ object StructureReader {
                 nearby = after,
                 htmlAttrs = attrs,
                 focused = node.isFocused,
-                value = node.autofillValue?.takeIf { it.isText }?.textValue?.toString().orEmpty(),
+                value = readableValue,
+                textInput = node.autofillType==View.AUTOFILL_TYPE_TEXT,
             )
         }
         val texts = items.filterIsInstance<Item.Text>().map { PageText(it.text, it.button) }

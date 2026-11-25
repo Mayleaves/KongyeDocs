@@ -30,6 +30,7 @@ data class PageField<T>(
     val htmlAttrs: Map<String, String> = emptyMap(),
     val focused: Boolean = false,
     val value: String = "",
+    val textInput: Boolean = true,
 ) {
     val passwordInput: Boolean get() {
         val cls = inputType and InputType.TYPE_MASK_CLASS
@@ -101,6 +102,7 @@ class Page<T>(val pkg: String, val domain: String, val fields: List<PageField<T>
         private val USER = re("""账号|帐号|账户|帐户|用户名|登录名|会员名|昵称|user\s*-?name|\buser\b|account|login\s*-?id|\blogin\b|身份证""")
 
         fun <T> classify(f: PageField<T>): FieldType {
+            if(!f.textInput) return FieldType.OTHER
             val label = f.label
             val hints = f.hints.map { it.lowercase() }
             val ac = f.autocomplete.lowercase().trim().split(Regex("\\s+")).last()
@@ -141,7 +143,7 @@ class Page<T>(val pkg: String, val domain: String, val fields: List<PageField<T>
             if (t.none { it.isAccount }) {
                 val firstPwd = t.indexOfFirst { it.isPassword }
                 if (firstPwd > 0) {
-                    val before = (firstPwd - 1 downTo 0).firstOrNull { t[it] == FieldType.OTHER }
+                    val before = (firstPwd - 1 downTo 0).firstOrNull { t[it] == FieldType.OTHER && fields[it].textInput }
                     if (before != null) t[before] = FieldType.USERNAME
                 }
             }

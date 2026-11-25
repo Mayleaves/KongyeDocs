@@ -216,7 +216,7 @@ object V33Regression {
                 putString("package", "com.example.shop"); putString("password", "Reg#Pass1"); putString("kind", "register"); putString("rules", "minlength: 8")
                 putParcelableArrayList("fields", arrayListOf(field("phone", "13800001234"), field("email", "bob@example.com")))
             })
-            check(reg.status() == "ok" && reg.getString("result") == "created" && reg.getInt("fields") == 1) { "register save $reg" }
+            check(reg.status() == "ok" && reg.getString("result") == "created" && reg.getInt("fields") == 2) { "register save $reg" }
             VaultStore.get(reg.getString("id")!!)!!.let { e ->
                 check(e.account == "13800001234" && e.field("邮箱") == "bob@example.com" && e.passwordRules == "minlength: 8" && e.apps == listOf("com.example.shop")) { "saved $e" }
             }

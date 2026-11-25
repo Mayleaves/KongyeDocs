@@ -386,13 +386,13 @@ class AutofillActivity : ComponentActivity() {
 
     @Composable
     private fun SaveContent(token: String, input: VaultApi.SaveInput) {
-        val existing = remember { VaultApi.findExisting(input) }
+        var account by remember { mutableStateOf(input.resolvedAccount) }
+        val existing = remember(account) { VaultApi.findExisting(input.copy(account=account,fields=input.fields.filterNot { it.type=="username" && it.value.trim()==input.resolvedAccount })) }
         var name by remember { mutableStateOf(input.name.ifEmpty { input.domain.ifEmpty { "网页密码" } }) }
         val checked = remember { mutableStateListOf(*input.fields.map { true }.toTypedArray()) }
         val editable = remember { mutableStateListOf(*input.fields.toTypedArray()) }
         var accountLabel by remember { mutableStateOf(existing?.accountLabel ?: "账号") }
         var passwordLabel by remember { mutableStateOf(existing?.passwordLabel ?: "密码") }
-        val account = input.resolvedAccount
         Column(Modifier.fillMaxWidth().heightIn(max=620.dp)) {
             Row(Modifier.fillMaxWidth().padding(start=20.dp,end=12.dp,top=20.dp,bottom=16.dp),verticalAlignment=Alignment.CenterVertically) {
                 Box(Modifier.size(42.dp).clip(RoundedCornerShape(12.dp)).background(Kongye.Field),contentAlignment=Alignment.Center) {
@@ -423,23 +423,26 @@ class AutofillActivity : ComponentActivity() {
                     Column(Modifier.fillMaxWidth().padding(horizontal=14.dp,vertical=12.dp)) {
                         SaveLabelField("账号字段名称",accountLabel,{accountLabel=it})
                         Spacer(Modifier.height(5.dp))
-                        Text(if(account.isEmpty()) "未提供账号" else VaultApi.mask(account),fontSize=15.sp,color=Kongye.Ink,maxLines=1,overflow=TextOverflow.Ellipsis)
+                        BasicTextField(account,{account=it.take(500)},Modifier.fillMaxWidth().semantics { contentDescription="账号内容" },
+                            singleLine=true,textStyle=TextStyle(fontSize=15.sp,color=Kongye.Ink),cursorBrush=SolidColor(Kongye.Primary),
+                            decorationBox={ inner -> Box { if(account.isEmpty()) Text("未提供账号",fontSize=15.sp,color=Kongye.Text4); inner() } })
                     }
                     HLine(Modifier.padding(horizontal=14.dp),color=Kongye.Line2.copy(alpha=.55f))
                     Column(Modifier.fillMaxWidth().padding(horizontal=14.dp,vertical=12.dp)) {
                         SaveLabelField("密码字段名称",passwordLabel,{passwordLabel=it})
                         Spacer(Modifier.height(5.dp))
-                        Text("••••••••••••",fontSize=15.sp,letterSpacing=2.sp,color=Kongye.Ink)
+                        Text(input.password,fontSize=15.sp,color=Kongye.Ink)
+                        Text("保存后默认隐藏",fontSize=11.sp,color=Kongye.Text3,modifier=Modifier.padding(top=4.dp))
                     }
                 }
-                val hasExtras=editable.indices.any { editable[it].value.trim()!=account || editable[it].type=="other" }
+                val hasExtras=editable.indices.any { editable[it].type!="username" || editable[it].value.trim()!=input.resolvedAccount }
                 if(hasExtras) {
                     Spacer(Modifier.height(18.dp))
                     Text("附加信息",fontSize=12.sp,color=Kongye.Text3)
                     Spacer(Modifier.height(8.dp))
                 }
                 editable.forEachIndexed { i,f ->
-                    if(f.value.trim()==account && f.type!="other") return@forEachIndexed
+                    if(f.type=="username" && f.value.trim()==input.resolvedAccount) return@forEachIndexed
                     Row(Modifier.padding(bottom=8.dp).fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Kongye.Field)
                         .padding(start=2.dp,end=4.dp,top=7.dp,bottom=7.dp),verticalAlignment=Alignment.CenterVertically) {
                         Checkbox(checked.getOrElse(i){true},{checked[i]=it},colors=androidx.compose.material3.CheckboxDefaults.colors(checkedColor=Kongye.Primary,uncheckedColor=Kongye.Text4))
@@ -450,7 +453,13 @@ class AutofillActivity : ComponentActivity() {
                                 Modifier.fillMaxWidth().semantics { contentDescription="字段 ${i+1} 内容" },
                                 textStyle=TextStyle(fontSize=14.sp,color=Kongye.Ink),cursorBrush=SolidColor(Kongye.Primary),
                                 decorationBox={ inner -> Box { if(f.value.isEmpty()) Text("填写内容",fontSize=14.sp,color=Kongye.Text4); inner() } },
-                                visualTransformation=if(f.secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None)
+                                visualTransformation=androidx.compose.ui.text.input.VisualTransformation.None)
+                            Row(Modifier.padding(top=8.dp).clip(RoundedCornerShape(4.dp)).clickable { editable[i]=editable[i].copy(secret=!editable[i].secret) }
+                                .semantics { contentDescription="字段 ${i+1} 保存后隐藏" }.padding(vertical=3.dp),verticalAlignment=Alignment.CenterVertically) {
+                                Icon(if(f.secret) KongyeIcons.EyeOff else KongyeIcons.Eye,null,Modifier.size(15.dp),tint=Kongye.Text3)
+                                Spacer(Modifier.width(5.dp))
+                                Text(if(f.secret) "保存后隐藏" else "保存后显示",fontSize=11.sp,color=Kongye.Text3)
+                            }
                         }
                         Box(Modifier.size(36.dp).clip(CircleShape).clickable { editable.removeAt(i); checked.removeAt(i) }
                             .semantics { contentDescription="移除字段 ${i+1}" },contentAlignment=Alignment.Center) {
@@ -477,7 +486,7 @@ class AutofillActivity : ComponentActivity() {
                 Box(Modifier.weight(1.5f)) {
                     PrimaryButton(if(existing!=null) "更新" else "保存",inset=false) {
                     val taken = PendingSaves.take(token) ?: run { finish(); return@PrimaryButton }
-                    val final = taken.copy(name = name.trim(), account=account, accountLabel=accountLabel.trim().ifEmpty { "账号" }, passwordLabel=passwordLabel.trim().ifEmpty { "密码" }, fields = editable.filterIndexed { i, _ -> checked.getOrElse(i) { true } }.filter { it.value.isNotBlank() })
+                    val final = taken.copy(name = name.trim(), account=account, accountLabel=accountLabel.trim().ifEmpty { "账号" }, passwordLabel=passwordLabel.trim().ifEmpty { "密码" }, fields = editable.filterIndexed { i, _ -> checked.getOrElse(i) { true } }.filter { it.value.isNotBlank() && !(it.type=="username" && it.value.trim()==input.resolvedAccount) })
                     runCatching { VaultApi.saveCredential(this@AutofillActivity, final) }
                         .onSuccess { r ->
                             VaultApi.log(VaultApi.AUTOFILL_CALLER, "save", pkg, final.domain, r.name, VaultApi.OK)

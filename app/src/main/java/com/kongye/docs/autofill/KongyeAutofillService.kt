@@ -116,7 +116,7 @@ class KongyeAutofillService : AutofillService() {
         val savePassword = newPassword ?: login
         var hasSave = false
         if (savePassword != null) {
-            val optional = (page.all(FieldType.USERNAME, FieldType.PHONE, FieldType.EMAIL, FieldType.CURRENT, FieldType.CONFIRM, FieldType.PASSWORD).map { it.id } - savePassword.id).distinct()
+            val optional = (page.fields.map { it.id } - savePassword.id).distinct()
             val type = SaveInfo.SAVE_DATA_TYPE_PASSWORD or SaveInfo.SAVE_DATA_TYPE_USERNAME or SaveInfo.SAVE_DATA_TYPE_EMAIL_ADDRESS
             val save = SaveInfo.Builder(type, arrayOf(savePassword.id))
                 .setFlags(SaveInfo.FLAG_SAVE_ON_ALL_VIEWS_INVISIBLE)
@@ -245,35 +245,18 @@ class KongyeAutofillService : AutofillService() {
             if (ignored(last.pkg) || !VaultStore.healthy) { callback.onSuccess(); return }
             val state = request.clientState
             val kind = runCatching { PageKind.valueOf(state?.getString(STATE_KIND).orEmpty()) }.getOrDefault(last.kind)
-            // 分步登录：账号在前一页、密码在后一页，所以每一页都看
-            val values = LinkedHashMap<FieldType, String>()
-            var password = ""
-            var current = ""
-            for (p in pages) {
-                p.fields.forEachIndexed { i, f ->
-                    val v = f.value.trim()
-                    if (v.isEmpty()) return@forEachIndexed
-                    when (val t = p.types[i]) {
-                        FieldType.USERNAME, FieldType.PHONE, FieldType.EMAIL -> values[t] = v
-                        else -> Unit
-                    }
-                }
-                (p.newPassword ?: p.loginPassword)?.value?.takeIf { it.isNotEmpty() }?.let { password = it }
-                if (p.kind == PageKind.CHANGE) p.first(FieldType.CURRENT)?.value?.takeIf { it.isNotEmpty() }?.let { current = it }
-            }
-            if (password.isEmpty()) { callback.onSuccess(); return }
             val browser = Browsers.isBrowser(this, last.pkg)
             val domain = pages.lastOrNull { it.domain.isNotEmpty() }?.domain.orEmpty()
-            val input = VaultApi.SaveInput(
-                app = if (browser) "" else last.pkg, domain = domain,
-                name = "", account = "", password = password,
-                kind = when (kind) { PageKind.REGISTER -> "register"; PageKind.CHANGE -> "change"; PageKind.LOGIN -> "login" },
-                fields = values.map { (t, v) -> VaultApi.SaveField(t.key, "", v) },
-                currentPassword = current, rules = state?.getString(STATE_RULES).orEmpty(),
-            )
-            val existing = VaultApi.findExisting(input)
-            // 用已存的同一个密码登录：不打扰，只记一下使用时间
-            if (existing != null && existing.password == password) {
+            val captured = CredentialCapture.collect(pages,if(browser) "" else last.pkg,domain,kind,state?.getString(STATE_RULES).orEmpty())
+                ?: run { callback.onSuccess(); return }
+            val existing = VaultApi.findExisting(captured)
+            val input = captured.copy(fields=captured.fields.map { field ->
+                existing?.fields?.firstOrNull { it.label==field.storedLabel }?.let { field.copy(secret=it.secret) } ?: field
+            })
+            val password = input.password
+            val newFields=CredentialCapture.hasNewFields(input,existing)
+            // 同一密码且没有新字段时不打扰；补充邮箱等信息仍需确认。
+            if (existing != null && existing.password == password && !newFields) {
                 VaultStore.update(existing.id) { it.copy(lastUsedAt = System.currentTimeMillis()) }
                 callback.onSuccess(); return
             }
