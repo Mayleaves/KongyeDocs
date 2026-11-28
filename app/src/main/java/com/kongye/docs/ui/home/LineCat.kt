@@ -351,9 +351,9 @@ private fun DrawScope.drawCat(part: DayPart, act: CatAct?, p: Float, t: Float, i
             drawFishBowl(bowl,props,ink,bg)
             repeat(3) { i ->
                 val phase = (t*0.38f+i/3f)%1f
-                val y = 87f-phase*20f
-                val x = 12f+i*6f+sin(t*2f+i)*1.3f
-                translate(x,y) { drawPath(steam,ink.copy(alpha=sin(phase*PI.toFloat())*0.75f),style=line(2.1f)) }
+                val y = 85f-phase*20f
+                val x = 10f+i*5.5f+sin(t*2f+i)*1.2f
+                translate(x,y) { drawPath(steam,ink.copy(alpha=sin(phase*PI.toFloat())*0.75f),style=line(1.9f)) }
             }
         }
         DayPart.AFTERNOON -> if(!playing) drawPath(yarn,ink,style=line(2.1f))

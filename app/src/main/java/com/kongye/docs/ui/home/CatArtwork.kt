@@ -30,7 +30,7 @@ internal data class CatArtPart(val path: Path, val fill: String, val stroke: Str
 
 internal data class CatEffectFrame(val scale: Float,val alpha: Float)
 internal enum class CatArtEffect(val x: Float,val y: Float,private val delay: Float=0f) {
-    NONE(0f,0f), BUBBLE(83f,91f), Z1(141.5f,58f,.25f), Z2(154.5f,43f,.65f), Z3(170.5f,26f,1.05f);
+    NONE(0f,0f), BUBBLE(93.5f,90f), Z1(141f,56f,.25f), Z2(155f,43f,.65f), Z3(170f,27.5f,1.05f);
     fun frame(seconds: Float): CatEffectFrame {
         if(this==NONE) return CatEffectFrame(1f,1f)
         val p=(((seconds-delay)%3.4f+3.4f)%3.4f)/3.4f
@@ -42,15 +42,15 @@ internal enum class CatArtEffect(val x: Float,val y: Float,private val delay: Fl
 /** Only local rigid rotations: the body, size and ground position never animate. */
 internal enum class CatArtMotion(val degrees: Float, val x: Float, val y: Float) {
     STILL(0f,0f,0f),
-    SLEEP_TAIL(3f,164f,108f),
-    SLEEP_LEFT_PAW(3f,92f,120f),
-    SLEEP_RIGHT_PAW(-3f,98f,120f),
-    SLEEP_BUBBLE(0f,83f,91f),
-    WAND_PAW(-12f,73f,98f),
-    WAND_ROD(3.5f,10f,16f),
-    WAND_LURE(10f,76f,24f),
-    MOUSE_TOY(5f,40f,125f),
-    MOUSE_PAW(-7f,70f,120f);
+    SLEEP_TAIL(3f,166f,112f),
+    SLEEP_LEFT_PAW(3f,87.5f,120f),
+    SLEEP_RIGHT_PAW(-3f,109f,120f),
+    SLEEP_BUBBLE(0f,93.5f,90f),
+    WAND_PAW(-8f,80f,108f),
+    WAND_ROD(3.5f,33f,34f),
+    WAND_LURE(10f,53f,28f),
+    MOUSE_TOY(4.5f,47f,124.5f),
+    MOUSE_PAW(-9f,82f,122f);
 
     fun matrix(wave: Float): Matrix {
         val phase=wave.coerceIn(-1f,1f)

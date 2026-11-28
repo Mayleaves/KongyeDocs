@@ -10,14 +10,22 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kongye.docs.data.AppRelease
@@ -53,6 +61,25 @@ internal fun DownloadBar(progress: Float, size: Long) {
             )
             Text("${(progress * 100).toInt()}%", fontSize = 13.sp, color = Kongye.Text2)
         }
+    }
+}
+
+/** 强调条目开头的主题词（如“保存网页密码：”），让多行更新说明一眼好扫读 */
+private fun formatUpdateHighlight(item: String) = buildAnnotatedString {
+    val cnColon = item.indexOf('：')
+    val enColon = item.indexOf(": ")
+    val splitAt = when {
+        cnColon in 1..14 -> cnColon + 1
+        enColon in 1..14 -> enColon + 2
+        else -> -1
+    }
+    if (splitAt > 0) {
+        withStyle(SpanStyle(color = Kongye.Text, fontWeight = FontWeight.Medium)) {
+            append(item.substring(0, splitAt))
+        }
+        append(item.substring(splitAt))
+    } else {
+        append(item)
     }
 }
 
@@ -124,33 +151,83 @@ internal fun UpdateEntries(client: AppUpdates = remember { AppUpdates() }, betwe
     }
     when(stage) {
         "available","latest" -> DialogFrame(onDismiss={stage="idle"}) {
-            DialogTitle(if(stage=="available") "发现新版本 v${release?.version}" else "检查更新")
-            Text(
-                if(stage=="available") ReleaseNotes.summary(release?.notes.orEmpty()) else message,
-                Modifier.fillMaxWidth().padding(horizontal=24.dp),fontSize=14.sp,color=Kongye.Text2,
-                textAlign=if(stage=="available") TextAlign.Center else TextAlign.Start,
-                lineHeight=21.sp,
-            )
-            Box(
-                Modifier.align(Alignment.Start)
-                    .padding(start = 24.dp, end = 24.dp, top = 2.dp)
-                    .heightIn(min = 30.dp)
+            val isAvailable = stage == "available"
+            if (isAvailable) {
+                val installedVersion = remember(context) { AppUpdates.installed(context).version }
+                val sizeLabel = sizeText(release?.size ?: 0L)
+                val meta = if (sizeLabel.isNotEmpty()) "当前 v$installedVersion · $sizeLabel" else "当前 v$installedVersion"
+                val summary = remember(release?.notes) { ReleaseNotes.summary(release?.notes.orEmpty()) }
+                val lines = remember(summary) { summary.lines().filter { it.isNotBlank() } }
+                Text(
+                    "发现新版本 v${release?.version}",
+                    Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 22.dp),
+                    fontSize = 18.sp, fontWeight = FontWeight.SemiBold, textAlign = TextAlign.Center, color = Kongye.Text,
+                )
+                Text(
+                    meta,
+                    Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, top = 4.dp),
+                    fontSize = 12.sp, textAlign = TextAlign.Center, color = Kongye.Text3,
+                )
+                Spacer(Modifier.height(14.dp))
+                Column(
+                    Modifier.fillMaxWidth()
+                        .padding(horizontal = 20.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Kongye.Card)
+                        .semantics { contentDescription = summary }
+                        .padding(horizontal = 14.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    lines.forEach { raw ->
+                        if (raw.startsWith("• ")) {
+                            val item = raw.removePrefix("• ")
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                                Box(
+                                    Modifier.padding(top = 8.dp).size(4.5.dp)
+                                        .clip(CircleShape).background(Kongye.Primary.copy(alpha = 0.75f)),
+                                )
+                                Spacer(Modifier.width(9.dp))
+                                Text(
+                                    formatUpdateHighlight(item),
+                                    Modifier.weight(1f),
+                                    fontSize = 13.5.sp, lineHeight = 20.5.sp, color = Kongye.Text2,
+                                )
+                            }
+                        } else {
+                            Text(raw, fontSize = 13.5.sp, lineHeight = 20.5.sp, color = Kongye.Text2)
+                        }
+                    }
+                }
+            } else {
+                DialogTitle("检查更新")
+                Text(
+                    message,
+                    Modifier.fillMaxWidth().padding(horizontal = 24.dp),
+                    fontSize = 14.sp, color = Kongye.Text2, textAlign = TextAlign.Center, lineHeight = 21.sp,
+                )
+            }
+            Row(
+                Modifier.align(Alignment.CenterHorizontally)
+                    .padding(top = 10.dp)
                     .clip(RoundedCornerShape(8.dp))
                     .clickable {
                         stage = "idle"
                         AppState.push(Screen.UpdateHistory)
-                    },
-                contentAlignment = Alignment.CenterStart,
+                    }
+                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text("查看更新历史", color = Kongye.Link, fontSize = 14.sp)
+                Text("查看更新历史", color = Kongye.Link, fontSize = 13.sp)
+                Spacer(Modifier.width(2.dp))
+                Icon(KongyeIcons.ChevronRight, null, Modifier.size(13.dp), tint = Kongye.Link)
             }
             DialogButtons(
-                if (stage == "available") "下载更新" else "知道了",
+                if (isAvailable) "下载更新" else "知道了",
                 Kongye.Primary,
-                onCancel = if (stage == "available") ({ stage = "idle" }) else null,
-                topSpacing = 8.dp,
+                onCancel = if (isAvailable) ({ stage = "idle" }) else null,
+                topSpacing = 10.dp,
             ) {
-                if (stage == "available") download() else stage = "idle"
+                if (isAvailable) download() else stage = "idle"
             }
         }
         "download" -> DialogFrame(onDismiss={job?.cancel();stage="idle"}) {

@@ -16,8 +16,8 @@ android {
         applicationId = "com.kongye.docs"
         minSdk = 26
         targetSdk = 36
-        versionCode = if (updateFixture) providers.gradleProperty("fixtureCode").get().toInt() else 77
-        versionName = if (updateFixture) providers.gradleProperty("fixtureVersion").get() else "3.7.10"
+        versionCode = if (updateFixture) providers.gradleProperty("fixtureCode").get().toInt() else 78
+        versionName = if (updateFixture) providers.gradleProperty("fixtureVersion").get() else "3.7.11"
         testInstrumentationRunner = "com.kongye.docs.RegressionInstrumentation"
         manifestPlaceholders["appLabel"] = "空叶文档"
     }

@@ -1,8 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 150 150" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-  <!-- The fish sits behind the front lip; its forked tail stays above the bowl. -->
-  <path id="fish" d="M17 85L11 76L18 79L25 75L24 84L22 86C29 90 26 95 20 97C12 95 11 90 17 85Z"/>
-  <path id="fishDetail" d="M17 85L22 86M20 88L18 92M23 90L22.9 90"/>
-  <path id="bowlFront" d="M7 92Q19 97 31 92L28 101Q19 106 10 101Z"/>
+  <!-- 小鱼干斜卧在猫碗里，鱼头埋在碗口右侧，鱼身圆润、鱼尾向左上方探出，远离小猫胡须 -->
+  <path id="fish" d="M21 94C21.5 88.5 18 85 13.5 84.5L14 78.5L11.5 82L7.5 81L12 86.5C11.5 91.5 14 95 21 94Z"/>
+  <path id="fishDetail" d="M17.5 87.5Q16 90 17.5 92M19 90.3L19.1 90.3M8 93.2Q10 90.8 12.2 92.4"/>
+  <!-- 稳稳贴在地面 y=103 上的小猫碗 -->
+  <path id="bowlFront" d="M5.5 93.5Q15.5 97 25.5 93.5L23 102Q15.5 103.5 8 102Z"/>
   <path id="wand" d="M8 28L27 44M7 27L12 32"/>
   <path id="cord" d="M27 44C19 48 25 56 19 61"/>
   <path id="feather" d="M19 61C11 60 9 69 14 76C21 75 25 68 19 61Z"/>

@@ -15,14 +15,17 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.kongye.docs.ui.ShareKind
@@ -51,7 +54,7 @@ private val iconTint get() = if (Kongye.dark) Color(0xFFBDBDBD) else Color(0xFF5
 @Composable
 fun DocMenuSheet(starred: Boolean, words: Int, actions: DocMenuActions, onDismiss: () -> Unit, pinned: Boolean = false) {
     BottomSheet(onDismiss, dragToDismiss = false) { dismiss ->
-        Column(Modifier.heightIn(max = 680.dp).verticalScroll(rememberScrollState())) {
+        Column(Modifier.heightIn(max = 640.dp).verticalScroll(rememberScrollState())) {
             // 收藏、置顶：关闭时是空心图标，打开后变实心
             MenuRow(
                 if (starred) KongyeIcons.Bookmark else KongyeIcons.BookmarkOutline, "收藏",
@@ -67,31 +70,30 @@ fun DocMenuSheet(starred: Boolean, words: Int, actions: DocMenuActions, onDismis
                 onClick = actions.onTogglePin,
             )
             HLine(color = Kongye.Divider)
-            MenuRow(KongyeIcons.InfoFilled, "文档信息", trailing = { Text("总字数：$words", fontSize = 15.sp, color = Kongye.Sub) }) {
+            MenuRow(KongyeIcons.InfoFilled, "文档信息", trailing = { Text("总字数：$words", fontSize = 14.sp, color = Kongye.Sub) }) {
                 dismiss(actions.onInfo)
             }
             HLine(color = Kongye.Divider)
             MenuRow(KongyeIcons.FindReplace, "查找替换") { dismiss(actions.onFind) }
             Band()
-            MenuRow(KongyeIcons.TemplateFilled, "保存为模板") { dismiss(actions.onSaveTemplate) }
-            HLine(color = Kongye.Divider)
-            MenuRow(KongyeIcons.CommentFilled, "查看评论") { dismiss(actions.onComments) }
-            HLine(color = Kongye.Divider)
-            MenuRow(KongyeIcons.TocFilled, "查看目录") { dismiss(actions.onToc) }
-            HLine(color = Kongye.Divider)
-            MenuRow(KongyeIcons.SaveFilled, "查看本地版本") { dismiss(actions.onLocalVersions) }
+            Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp)) {
+                ToolTile(KongyeIcons.TemplateFilled, "保存为模板") { dismiss(actions.onSaveTemplate) }
+                ToolTile(KongyeIcons.CommentFilled, "查看评论") { dismiss(actions.onComments) }
+                ToolTile(KongyeIcons.TocFilled, "查看目录") { dismiss(actions.onToc) }
+                ToolTile(KongyeIcons.SaveFilled, "查看本地版本") { dismiss(actions.onLocalVersions) }
+            }
             Band()
-            Row(Modifier.fillMaxWidth().padding(vertical = 12.dp)) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 6.dp, vertical = 8.dp)) {
                 ShareTile(ShareKind.IMAGE, "分享图片") { dismiss { actions.onShare(ShareKind.IMAGE) } }
                 ShareTile(ShareKind.TEXT, "分享文字") { dismiss { actions.onShare(ShareKind.TEXT) } }
                 ShareTile(ShareKind.MARKDOWN, "分享 Markdown") { dismiss { actions.onShare(ShareKind.MARKDOWN) } }
             }
             Band()
             Box(
-                Modifier.fillMaxWidth().height(56.dp).clickable { dismiss(actions.onDelete) },
+                Modifier.fillMaxWidth().height(50.dp).clickable { dismiss(actions.onDelete) },
                 contentAlignment = Alignment.Center,
-            ) { Text("删除文档", fontSize = 16.sp, color = Kongye.Danger) }
-            Box(Modifier.fillMaxWidth().background(Kongye.Band).navigationBarsPadding().height(12.dp))
+            ) { Text("删除文档", fontSize = 15.5.sp, color = Kongye.Danger) }
+            Spacer(Modifier.fillMaxWidth().navigationBarsPadding())
         }
     }
 }
@@ -100,7 +102,7 @@ fun DocMenuSheet(starred: Boolean, words: Int, actions: DocMenuActions, onDismis
 private fun Band() {
     Column {
         HLine(color = Kongye.Line)
-        Box(Modifier.fillMaxWidth().height(14.dp).background(Kongye.Band))
+        Box(Modifier.fillMaxWidth().height(8.dp).background(Kongye.Band))
         HLine(color = Kongye.Line)
     }
 }
@@ -108,20 +110,34 @@ private fun Band() {
 @Composable
 private fun MenuRow(icon: ImageVector, label: String, trailing: (@Composable () -> Unit)? = null, onClick: () -> Unit) {
     Row(
-        Modifier.fillMaxWidth().height(56.dp).clickable(onClick = onClick).padding(start = 22.dp, end = 18.dp),
+        Modifier.fillMaxWidth().height(48.dp).clickable(onClick = onClick).padding(start = 22.dp, end = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(icon, null, Modifier.size(22.dp), tint = iconTint)
-        Spacer(Modifier.width(20.dp))
-        Text(label, Modifier.weight(1f), fontSize = 16.sp, color = Kongye.Ink)
+        Spacer(Modifier.width(18.dp))
+        Text(label, Modifier.weight(1f), fontSize = 15.5.sp, color = Kongye.Ink)
         trailing?.invoke()
+    }
+}
+
+@Composable
+private fun RowScope.ToolTile(icon: ImageVector, label: String, onClick: () -> Unit) {
+    Column(
+        Modifier.weight(1f).clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(vertical = 8.dp, horizontal = 2.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.size(32.dp), contentAlignment = Alignment.Center) {
+            Icon(icon, null, Modifier.size(22.dp), tint = iconTint)
+        }
+        Spacer(Modifier.height(5.dp))
+        Text(label, fontSize = 12.sp, color = Kongye.Ink, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
 
 @Composable
 private fun RowScope.ShareTile(kind: ShareKind, label: String, onClick: () -> Unit) {
     Column(
-        Modifier.weight(1f).heightIn(min = 64.dp).clickable(onClick = onClick).padding(vertical = 6.dp),
+        Modifier.weight(1f).heightIn(min = 64.dp).clip(RoundedCornerShape(10.dp)).clickable(onClick = onClick).padding(vertical = 6.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         // 比 v2.12 紧凑，但图标和文字之间、整排上下都留出呼吸空间
@@ -130,10 +146,10 @@ private fun RowScope.ShareTile(kind: ShareKind, label: String, onClick: () -> Un
             ShareKind.TEXT -> KongyeIcons.TextT
             ShareKind.MARKDOWN -> KongyeIcons.Markdown
         }
-        Box(Modifier.height(32.dp), contentAlignment = Alignment.Center) {
-            Icon(icon, null, Modifier.size(26.dp), tint = Kongye.Ink2)
+        Box(Modifier.height(30.dp), contentAlignment = Alignment.Center) {
+            Icon(icon, null, Modifier.size(24.dp), tint = Kongye.Ink2)
         }
-        Spacer(Modifier.height(7.dp))
-        Text(label, fontSize = 13.sp, color = Kongye.Ink2)
+        Spacer(Modifier.height(6.dp))
+        Text(label, fontSize = 12.5.sp, color = Kongye.Ink2, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }

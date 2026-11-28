@@ -184,6 +184,7 @@ object V213Regression {
                     click("检查更新")
                     waitFor("concise actual update dialog") { find("发现新版本 v999.0")!=null && find(summary)!=null }
                     check(find("第四条不应该显示。")==null && find("自动化测试全部通过。")==null)
+                    Thread.sleep(450)
                     shot("concise-update-dialog.png")
                     click("取消")
                 }
